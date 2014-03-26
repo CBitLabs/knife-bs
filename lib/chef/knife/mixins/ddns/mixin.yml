@@ -1,0 +1,5 @@
+name: ddns
+description: "Configure dynamic DNS on machine boot"
+mixin:
+  files:
+    ddns_setup:

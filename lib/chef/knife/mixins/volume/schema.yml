@@ -1,0 +1,135 @@
+## TODO make swap information part of each volume decl
+
+desc: "Volume declaration"
+type: map
+required: no
+mapping:
+  "ephemeral":
+    type: map
+    required: no
+    mapping:
+      "raid":
+        desc: "Raid volume declaration for ephemeral drives"
+        type: map
+        required: no
+        mapping:
+          "name":
+            desc: "Name of raid device for ephemeral drives"
+            type: str
+            required: yes
+          "level":
+            desc: "RAID level (0 default)"
+            type: str
+            required: no
+          "format":
+            desc: "Device format"
+            type: str
+            required: yes
+          "mount":        &mount
+            desc: "Short mount definition"
+            type: str
+            required: no
+          "mount_detail": &long_mount
+            desc: "Location to mount"
+            type: map
+            required: no
+            mapping:
+              "dir":
+                type: str
+                required: yes
+              "mode":
+                type: str
+                required: no
+              "owner":
+                type: str
+                required: no
+              "group":
+                type: str
+                required: no
+      "=":
+        desc: "Individual drive mounts"
+        type: map
+        required: no
+        mapping:
+          "format":
+            desc: "Device format"
+            type: str
+            required: yes
+          "mount":        *mount
+          "mount_detail": *long_mount
+
+  "ebs":
+    desc: "Amazon EBS drive configuration"
+    type: map
+    required: yes
+    mapping:
+      "=":
+        desc: "EBS Device"
+        type: map
+        required: no
+        mapping:
+          # Settings here are all optional because
+          # RAID and individual mounts are mutex
+          "raid":
+            desc: "Name of RAID device"
+            type: str
+            required: no
+          "format":
+            desc: "Device format"
+            type: str
+            required: yes
+          "size":
+            desc: "EBS size in GB"
+            type: int
+            required: no
+          "mount":        *mount
+          "mount_detail": *long_mount
+          "temp":
+            desc: "Temporary drive (true|false)"
+            type: bool
+            required: no
+  "raid":
+    desc: "RAID volume configuration"
+    type: map
+    required: no
+    mapping:
+      "=":
+        desc: "RAID device name"
+        type: map
+        required: no
+        mapping:
+          "level":
+            type: str
+            required: no
+          "format":
+            desc: "Device format"
+            type: str
+            required: yes
+          "mount":        *mount
+          "mount_detail": *long_mount
+  "bind":
+    desc: "Local remounts/symlinks"
+    type: map
+    required: no
+    mapping:
+      "=":
+        desc: "mount --bind <SOURCE>(:) <DESTINATION>"
+        type: str
+        required: no
+
+  "swap":
+    desc: "What do with swap"
+    type: map
+    required: no
+    mapping:
+      "volume":
+        desc: "Does mount represent a partition or a file?"
+        type: bool
+        required: no
+      "size":
+        desc: "Swapfile size as <number> (G|M|K)"
+        type: str
+        required: yes
+      "mount":        *mount
+      # detail only work for swap`files`
+      "mount_detail": *long_mount

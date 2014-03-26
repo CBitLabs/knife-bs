@@ -1,0 +1,6 @@
+name: cloudconf
+description: "Build AWS user data (doesn't install anything)"
+mixin:
+  files:
+    bs_cloud_conf:
+      outfile: bs_cloud_config

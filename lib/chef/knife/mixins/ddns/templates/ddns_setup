@@ -1,0 +1,32 @@
+#!/bin/bash
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Hostname registration with NAT
+apt-get update 1>>/dev/null && apt-get -y -q --force-yes install ddnsclient
+## HACKS - need to store all the information for a FQDN separately, then
+## have some function that collapses the elements into the fqdn
+rm /etc/hostname &&
+echo "<%=@data.assoc[server.id].fqdn.split('.')[0]%>" >> /etc/hostname &&
+hostname <%=@data.assoc[server.id].fqdn.split('.')[0]%>
+
+echo "search <%=@data.subnet%>.<%=@data.vpc%>.<%=@data.domain%> <%=@data.vpc%>.<%=@data.domain%>" \
+ >> /etc/resolvconf/resolv.conf.d/tail && resolvconf -u
+ddnsclient <%=@data.assoc[server.id].fqdn%> nat.<%=@data.vpc%>.<%=@data.domain%>
+
+
+## TODO can be installed via a sed command that places whatever the
+## commands are right before you reach exit 0
+## TODO get rid of bitsight-rsyslog. Make ddnsclient optional somehow
+sed -i.bak "s/exit 0//" /etc/rc.local
+
+cat <<EOF >> /etc/rc.local
+# register node w/ NAT
+dpkg -l | grep ddnsclient &> /dev/null
+if [ $? -eq 0 ];then
+<%#                                            \/\/\/\/ HARDCODED-%>
+  ddnsclient <%=@data.assoc[server.id]['fqdn']%> nat.<%=@data.vpc%>.<%=@data.domain%>
+fi
+reload bitsight-rsyslog || true
+exit 0
+EOF

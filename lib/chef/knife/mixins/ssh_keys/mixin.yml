@@ -1,0 +1,4 @@
+description: "Install SSH keys for easier login without chef"
+mixin:
+  files:
+    authorize_ssh_keys:

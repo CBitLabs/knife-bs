@@ -1,0 +1,4 @@
+#!/bin/bash
+<% @data.each do |hook| %>
+<%=hook %>
+<% end -%>

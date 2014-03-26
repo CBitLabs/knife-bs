@@ -1,0 +1,10 @@
+#!/bin/bash
+
+<%# Does it for user `ubuntu` only, as its the only one available -%>
+<%# during provisioning -%>
+
+<%# Authorize keys for an additional user by adding an action in mixin.rb -%>
+
+<% @data.each do |k| -%>
+echo "<%=k%>" >> ~/.ssh/authorized_keys
+<% end -%>

@@ -1,0 +1,54 @@
+#!/bin/bash
+shopt -s expand_aliases
+
+# ----------------------------------------------------------------------
+# Aliases
+
+alias Return1Fail='if  [ ! $? -eq 0 ]; then return 1; fi'
+alias Return0Fail='if  [ ! $? -eq 0 ]; then return 0; fi'
+alias Return1Success='if [ $? -eq 0 ]; then return 1; fi'
+alias Return0Success='if [ $? -eq 0 ]; then return 0; fi'
+
+# ----------------------------------------------------------------------
+# Functions
+# Takes a format (1) and a device (2)
+fmt_as() {
+  fmt=`check_device_format $2`
+  if [ ! "$fmt" == "$1" ]; then
+    echo "$2 is $fmt, formatting as $1"
+    umount "$2" &>/dev/null
+    mkfs.$1 -q -b 4096 $2
+    Return1Fail
+  else
+    echo "$device_path is already $1"
+  fi
+}
+
+check_device_format() {
+  fmt=$(blkid | grep $1 | egrep -o " TYPE=.*" | cut -d'=' -f2 | sed 's/"//g')
+  if [ "$fmt" != "" ]; then
+    echo $fmt
+    return 0
+  else
+    echo "unknown"
+    return 1
+  fi
+}
+
+device_is_mounted() {
+  mount | grep $1 > /dev/null 2>&1
+}
+
+wipe_blocks() {
+  dd if=/dev/zero of=$1 bs=4096 count=1024
+}
+
+install_mdadm() {
+  dpkg-query --list | grep mdadm > /dev/null 2>&1
+  if [ ! $? -eq 0 ]; then
+    # don't pull in postfix
+    DEBIAN_FRONTEND=noninteractive; apt-get install mdadm --no-install-recommends
+    Return1Fail
+  fi
+  return 0
+}

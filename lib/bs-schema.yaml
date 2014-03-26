@@ -1,0 +1,229 @@
+desc: "knife-bs YAML mapping schema"
+type: map
+mapping:
+  "organizations":
+    desc: "Organization listing"
+    type: map
+    required: yes
+    mapping:
+      "=":
+        desc: "An organization"
+        type: map
+        required: no
+        mapping:
+          "domain":
+            desc: "Domain name"
+            type: str
+            required: yes
+          "mixin": &MIXIN
+            desc: "List of mixin declarations"
+            type: map
+            required: no
+            mapping:
+              "price":
+                desc: "Spot pricing"
+                type: float
+                name: QualifiedMixin
+                required: no
+              "tag":
+                desc: "Instance tags (future AMI and volume)"
+                type: map
+                name: QualifiedMixin
+                required: no
+                mapping:
+                  "=":
+                    type: scalar
+                    required: no
+              "az":
+                desc: "Availability Zone data"
+                type: str
+                name: QualifiedMixin
+                required: no
+              "chef":
+                desc: "Chef configuration options"
+                type: map
+                name: QualifiedMixin
+                required: no
+                mapping:
+                  "env":
+                    type: str
+                    required: no
+                  "run_list":
+                    type: seq
+                    required: no
+                    sequence:
+                      - type: str
+              "ami":
+                desc: "AMI info"
+                type: map
+                name: QualifiedMixin
+                required: no
+                mapping:
+                  "base":
+                    desc: "AMI id to use creating instance"
+                    type: str
+                    pattern: /ami-\h{8}/
+                  "prefix":
+                    desc: "Prefix attached to AMI tag"
+                    type: str
+                  "suffix":
+                    desc: "Suffix attached to AMI tag"
+                    type: str
+                  "cookbook":
+                    desc: "Cookbook name for making new AMIs"
+                    type: str
+                  "match":
+                    desc: "Which profile to match"
+                    type: str
+              "sg":
+                desc: "Security group data"
+                type: str
+                name: QualifiedMixin
+                required: no
+                pattern: /^sg-\h{8}$/
+              "route-tbl":
+                desc: "Routing table data"
+                type: str
+                name: QualifiedMixin
+                required: no
+                pattern: /^rtb-\h{8}$/
+              # The rest of the mixins go here
+              "=":
+                desc: "Configuration to pass to the named mixin"
+                type: any
+                name: Mixin
+                required: no
+
+  "environments":
+    desc: "Environments"
+    type: map
+    required: yes
+    mapping:
+      "=":
+        type: map
+        required: no
+        mapping:
+          "mixin": *MIXIN
+          # "regions":
+          #   desc: "Regions that are part of this environment"
+          #   type: seq
+          #   required: yes
+          #   sequence:
+          #     # This might need to be a mapping?
+          #     - type: str
+
+
+  "regions":
+    desc: "Regions/locations within the cloud provider"
+    type: map
+    required: yes
+    mapping:
+      "=":
+        type: map
+        required: no
+        mapping:
+          "id":
+            desc: "The AWS identifier"
+            type: str
+            required: yes
+          "mixin": *MIXIN
+          "vpc":
+            type: map
+            required: no
+            mapping:
+              "=":
+                type: map
+                required: no
+                mapping:
+                  "vpcid":
+                    type: str
+                    required: yes
+                  "dhcp":
+                    type: str
+                    required: yes
+                    pattern: /^dopt-\h{8}$/
+                  # "net":
+                  #   type: str
+                  #   required: yes
+                  #   pattern: /^\d{1,3}\.\d{1,3}$/
+                  ## AMI prefix into AMI mixin?
+                  # "ami-prefix":
+                  #   type: str
+                  #   required: yes
+                  # Mixin
+                  # "route-tbl":
+                  #   type: str
+                  #   required: yes
+                  #   pattern: /^rtb-\h{8}$/
+                  # "az":
+                  #   type: str
+                  #   required: no
+                  "mixin": *MIXIN
+                  "subnets":
+                    type: map
+                    desc: "List of subnets in this VPC"
+                    mapping:
+                      "=":
+                        desc: "Human-readable subnet name"
+                        type: map
+                        required: no
+                        mapping:
+                          "mixin": *MIXIN
+                          "id":
+                            desc: "Subnet identifier"
+                            type: str
+                            required: yes
+                          "env":
+                            desc: "Environment this belongs to"
+                            type: str
+                            required: yes
+
+  "stacks":
+    desc: "A combination of profiles used to describe a stack"
+    type: map
+    required: no
+    mapping:
+      "=":
+        type: map
+        required: no
+        mapping:
+          "mixin": *MIXIN
+          "profiles":
+            type: map
+            required: no
+            mapping:
+              "=":
+                type: map
+                required: no
+                mapping:
+                  "count":
+                    desc: "Number of nodes of this profile to create"
+                    type: int
+                    required: no
+
+  "profiles":
+    desc: "Application configurations"
+    type: map
+    required: yes
+    mapping:
+      "=":
+        desc: "Human-readable application group name"
+        type: map
+        required: no
+        mapping:
+          "mixin": *MIXIN
+          "name":
+            type: str
+            required: no
+          "type":
+            desc: "EC2 Instance flavor"
+            type: str
+            required: yes
+          "ipaddress":
+            desc: "Last ip group #"
+            type: str
+            required: no
+          "hostname":
+            ## TODO improve hostname wildcards (%02d)
+            type: str
+            required: no

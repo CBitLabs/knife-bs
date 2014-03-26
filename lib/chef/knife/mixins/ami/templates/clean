@@ -1,0 +1,10 @@
+#!/bin/bash
+# (if anyone has intentions of making public AMI's using this
+# tool) http://alestic.com/2011/06/ec2-ami-security
+
+apt-get --purge remove -y chef chef-full 2>/dev/null
+rm -rf /var/chef
+rm -rf /etc/chef
+rm -rf /opt/chef
+rm -rf /usr/bin/chef-apply
+rm -rf /usr/bin/chef-shell

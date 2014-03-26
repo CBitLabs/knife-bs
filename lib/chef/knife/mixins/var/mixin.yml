@@ -1,0 +1,12 @@
+## BitSight Technologies
+description: "Configure variables"
+
+mixin:
+  files:
+    bs.vars:
+      dir: /etc
+      mode: 666
+      owner: root
+      group: root
+    install_bs_vars:
+      run-at: before_chef

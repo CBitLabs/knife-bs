@@ -1,0 +1,7 @@
+desc: "Commands/hooks to run during provisioning"
+type: map
+required: no
+mapping:
+  "=":
+    type: str
+    required: no

@@ -1,0 +1,12 @@
+<%############################## %>
+<%# Edit this file for your own  %>
+<%#  user-data. Add methods to   %>
+<%#  the mixin.rb and hook them  %>
+<%#  into events (before or af-  %>
+<%#  ter chef)                   %>
+<%############################## %>
+
+cloud-config
+apt_upgrade: false
+user: ubuntu
+<%= @data.apt_config %>

@@ -1,0 +1,209 @@
+#! /bin/bash
+### BEGIN INIT INFO
+# Provides:          bs-ephemeral
+# Required-Start:    $remote_fs $syslog $dbus
+# Default-Start:     2 3 4 5
+# X-Start-Before:    hadoop-tasktracker hadoop-datanode hadoop-historyserver hadoop-jobtracker hadoop-namenode hadoop-secondarynamenode
+# Short-Description: Ephemeral drive configuration
+# Description:       Set up ephemeral drives as specified by the YAML
+#                    configuration. Must run before hadoop!
+### END INIT INFO
+
+## TODO: replace echo with logging functions from /lib/lsb/init-functions
+
+# Author: BitSight Technologies <ops@bitsighttech.com>
+
+# There is nothing but 'start' for this; it does not start a daemon
+
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
+DESC="Ephemeral drive configuration"
+NAME=bs-ephemeral
+SCRIPTNAME=/etc/init.d/$NAME
+
+# Read base configuration
+[ -r /etc/default/bs-volumes ] && . /etc/default/bs-volumes
+# Enable expanding aliases
+shopt -s expand_aliases
+
+# Read configuration variable file if it is present
+[ -r /etc/default/$NAME ] && . /etc/default/$NAME
+
+# Load the VERBOSE setting and other rcS variables
+. /lib/init/vars.sh
+
+# Define LSB log_* functions.
+# Depend on lsb-base (>= 3.2-14) to ensure that this file is present
+# and status_of_proc is working.
+. /lib/lsb/init-functions
+
+<% if @data.ephemeral[:raid] -%>
+get_ephemeral_raid_dev() {
+  MD_PATH=/dev/md
+  if [ ! -d $MD_PATH ]; then return 1; fi
+
+  eph_dev_name=`find $MD_PATH -name "*<%=@data.ephemeral.raid.name%>"`
+  if [ "$eph_dev_name" == "" ]; then
+    return 1;
+  fi
+
+  ephemeraid_dev=`readlink -f "$eph_dev_name" 2> /dev/null`
+
+  echo $ephemeraid_dev
+  return 0
+}
+
+ephemeraid_is_mounted() {
+  ephraiddev=`get_ephemeral_raid_dev`
+  if [ $? -eq 0 ]; then
+    device_is_mounted $ephraiddev
+    return $?
+  fi
+  # Named device doesn't exist, maybe we just mounted it
+  ephraiddev=`grep ephemeraid /etc/mdadm/mdadm.conf`
+  Return1Fail
+  
+  ephraiddev=`echo $ephraiddev | cut -d ' ' -f 2`
+  df | grep "$ephraiddev" | grep mnt &> /dev/null
+}
+
+try_mount_raid() {
+  if ! ephemeraid_is_mounted; then
+    ephraid=`get_ephemeral_raid_dev`
+    if [ $? -eq 0 ]; then
+      # Try to mount it if device exists
+      mount -t <%=@data.ephemeral.raid.format%> -o noatime \
+        $ephraid <%=get_mount('raid', :ephemeral)%> >/dev/null 2>&1
+      Return0Success
+    fi
+  fi
+  # fail otherwise
+  return 1
+}
+<% end %>
+
+<% if @data.ephemeral[:raid] %>
+# Set up a RAID of all ephemeral devices
+<% else %>
+# Mount every ephemeral device to its specified destination
+<% end %>
+setup_ephemeral() {
+  METADATA_URL="http://169.254.169.254/latest"
+  ephemerals=$(curl --silent $METADATA_URL/meta-data/block-device-mapping/ | grep ephemeral)
+
+  root_drive=`df -h | grep -v grep | awk 'NR==2{print $1}'`
+
+  if [[ "$root_drive" == *"xvd"* ]]; then
+    echo "Detected 'xvd' drive naming scheme (root: $root_drive)"
+    DRIVE_SCHEME='xvd'
+  else
+    echo "Detected 'sd' drive naming scheme (root: $root_drive)"
+    DRIVE_SCHEME='sd'
+  fi
+
+  drives=""
+  ephemeral_count=0
+
+  for e in $ephemerals; do
+    device_name=$(curl --silent $METADATA_URL/meta-data/block-device-mapping/$e)
+    device_name=$(echo $device_name | sed "s/sd/$DRIVE_SCHEME/")
+    device_path="/dev/$device_name"
+    if [ -b $device_path ]; then
+      log_progress_msg "Detected ephemeral disk: $device_path"
+      drives="$drives $device_path"
+      ephemeral_count=$((ephemeral_count + 1 ))
+    else
+      log_progress_msg "Ephemeral disk $e, $device_path is not present. skipping"
+    fi
+  done
+
+<% unless @data.ephemeral[:raid] %>
+# Mount each ephemeral drive.
+  <% @data[:ephemeral] && @data.ephemeral.each do |d,info| -%>
+  # Formatting <%=d%> as <%=%>
+  # Mounting to <%=info.format%>
+  edevice= echo "<%=d%>" | sed "s/sd/$DRIVE_SCHEME/"
+  req_fmt=<%info.format%>
+  mnt_pnt=<%=get_mount(d, :ephemeral)%>
+  [ ! -e $mnt_pnt ] && mkdir $mnt_pnt
+  # Ensure drive exists
+  echo $drives | grep $edevice > /dev/null 2>&1  &&
+  fmt_as $req_fmt $edevice                       &&
+  mount -t $req_fmt -o noatime $edevice $mnt_pnt && 
+  log_success_msg "Formatted/mounted $edevice"   ||
+  log_warning_msg "Failed to format $edevice"
+
+  <% end %>
+<% else -%>
+  # We are setting up an ephemeral RAID, try to mount it
+  try_mount_raid
+  if [ $? -eq 1 ]; then
+    # Didn't mount, so we have to do some work
+    case $ephemeral_count in
+      0)
+      # Do nothing
+        ;;
+      1)
+        req_fmt="<%=@data.ephemeral.raid.format%>"
+        mnt_pnt="<%=get_mount('raid', :ephemeral)%>"
+
+        fmt_as $req_fmt $drives &&
+        mount -t $req_fmt -o noatime $drives $mnt_pnt
+        Return1Fail
+        ;;
+      *)
+        service mdadm stop
+        # Multiple ephemeral, make RAID
+        for d in $drives; do
+          wipe_blocks $d
+          # Delete fstab entry, if exists
+          sed -i "/`echo $d | cut -d'/' -f 2`/d" /etc/fstab
+        done
+
+        umount -f <%=get_mount('raid', :ephemeral)%> &> /dev/null
+
+        service mdadm start
+
+        partprobe
+
+        mdadm --manage `get_ephemeral_raid_dev` --stop > /dev/null 2>&1
+        mdadm --create --name=<%=@data.ephemeral.raid.name%> --verbose /dev/md0 \
+          --level=0 -c256 --raid-devices=$ephemeral_count $drives
+        Return1Fail
+
+        # setup mdadm.conf so on node restart it's fast
+        echo DEVICE $drives | tee /etc/mdadm/mdadm.conf
+        echo "`mdadm --detail --scan`" | tee -a /etc/mdadm/mdadm.conf
+
+        fmt_as <%=@data.ephemeral.raid.format%> /dev/md0
+        blockdev --setra 65536 /dev/md0
+        [ ! -e $mnt_pnt ] && mkdir <%=get_mount('raid', :ephemeral)%>
+        mount -t <%=@data.ephemeral.raid.format%> -o noatime /dev/md0 <%=get_mount('raid', :ephemeral)%>
+        Return1Fail
+        ;;
+    esac
+  fi
+<% end %>
+  return 0
+}
+
+do_start()
+{
+  <% if @data.ephemeral[:raid] -%>
+  install_mdadm
+  <% end %>
+  setup_ephemeral
+}
+
+case "$1" in
+  start)
+    log_daemon_msg "Setting up ephemeral storage" "bs-ephemeral"
+    do_start
+    log_end_msg $?
+    ;;
+  *)
+    echo "Usage: $SCRIPTNAME {start}" >&2
+    exit 3
+    ;;
+esac
+
+:

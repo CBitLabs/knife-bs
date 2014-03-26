@@ -1,0 +1,7 @@
+desc: "Environment variable definitions"
+type: map
+required: no
+mapping:
+  "=":
+    type: str
+    required: no

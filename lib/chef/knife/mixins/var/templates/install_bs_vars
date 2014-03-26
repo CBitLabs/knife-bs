@@ -1,0 +1,8 @@
+#!/bin/bash
+set +x
+# Needs to append to user's ~/.bashrc
+cat << EOF >> /home/ubuntu/.bashrc
+if [ -e /etc/bs.vars ]; then
+  . /etc/bs.vars;
+fi
+EOF

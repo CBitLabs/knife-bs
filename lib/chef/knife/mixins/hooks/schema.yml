@@ -1,0 +1,7 @@
+desc: ""
+type: map
+required: no
+mapping:
+  "=":
+    type: str
+    required: no

@@ -1,0 +1,14 @@
+desc: "Apt-get configuration"
+type: map
+required: no
+mapping:
+  "sources":
+    type: seq
+    required: no
+    sequence:
+      - type: str
+  "packages":
+    type: seq
+    required: no
+    sequence:
+      - type: str

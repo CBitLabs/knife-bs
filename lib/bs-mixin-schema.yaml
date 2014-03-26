@@ -1,0 +1,74 @@
+# Configuration dictates what happens.
+# Code can be hooked in as well (in mixin.rb)
+#  actions can be scripted!
+
+desc: "knife-bs mixin YAML schema"
+type: map
+mapping:
+  # "name":
+  #   type: str
+  #   required: yes
+  "description":
+    type: str
+    required: yes
+
+  "mixin":
+    type: map
+    required: yes
+    mapping:
+      "templates":
+        desc: "Directory where templates exist"
+        type: str
+        required: no
+      "files":
+        desc: "Registered templates, scripts, etc."
+        type: map
+        required: no
+        mapping:
+          "=":
+            desc: "Filename"
+            type: map
+            required: no
+            mapping: &action_opts
+              "outfile":
+                desc: "The name of the file after templating"
+                type: str
+                required: no
+              "run-at":
+                desc: "When should this be run?"
+                type: str
+                required: no
+                enum:
+                  - before_chef
+                  - after_chef
+              "run-as":
+                desc: "User to run this as. Default is root"
+                type: str
+                required: no 
+              ## Below are options to install(1)
+              "owner":
+                desc: "-o, --owner=OWNER"
+                type: str
+                required: no
+              "group":
+                desc: "-g, --group=GROUP"
+                type: str
+                required: no
+              "dir":
+                type: str
+                required: no 
+              "mode":
+                type: int
+                required: no
+
+  "default":
+    desc: "Default actions"
+    type: map
+    required: no
+    mapping:
+      "=":
+        desc: "Named action"
+        type: map
+        required: no
+        mapping:
+          <<: *action_opts
