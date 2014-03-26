@@ -174,7 +174,7 @@ For **BS** commands, most of the options are picked up from the
 `bs-atlas.yaml` file. This file describes the current state of our AWS
 infrastructure as shown above
 
-## knife bs server create
+## [knife bs server create](lib/chef/knife/bs_server_create.rb)
 
 This command is used to spin up instances. Multiple instances can be
 created using the `--count NUMBER` flag. Specify ebs volume sizes to
@@ -185,17 +185,17 @@ use on-demand instances, use `--nospot`
 
 See the help text for other options/flags.
 
-## knife bs server delete
+## [knife bs server delete](lib/chef/knife/bs_server_delete.rb)
 
 Terminate instances in AWS using wildcards and subnet/environment
 specification.
 
-## knife bs server list
+## [knife bs server list](lib/chef/knife/bs_server_list.rb)
 
 Use this command to view what instances are running in a subnet or
 environment. See help text for usage
 
-## knife bs ami create
+## [knife bs ami create](lib/chef/knife/bs_ami_create.rb)
 
 ** Work in Progress **
 
@@ -210,20 +210,20 @@ specifying a command line parameter `--nospot`. This creates an
 on-demand instance for AMI generation, when sometimes we don't want to
 wait.
 
-## knife bs bootstrap
+## [knife bs bootstrap](lib/chef/knife/bs_bootstrap.rb)
 
 ** Work in Progress **
 
 Bootstraps an instance by installing Chef on a running machine and
 bringing it under the control of Chef server.
 
-## knife bs ebs
+## [knife bs ebs](lib/chef/knife/bs_ebs.rb)
 
 ** Work in Progress **
 
 Manage EBS volumes (create, attach, mount)
 
-## knife bs ebs delete
+## [knife bs ebs delete](lib/chef/knife/bs_ebs_delete.rb)
 
 Delete/detach EBS volumes
 
