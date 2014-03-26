@@ -227,7 +227,7 @@ Manage EBS volumes (create, attach, mount)
 
 Delete/detach EBS volumes
 
-# v8.1.0 (Open Source)
+# v7.1.6 (Open Source)
 
 - New YAML structure (`bs-atlas.yaml`)
     * Adds concept of `stacks` (cluster types) that can be declared
