@@ -1,0 +1,92 @@
+#! /bin/bash
+### BEGIN INIT INFO
+# Provides:          bs_volume_init
+# Required-Start:
+# Default-Start:     2 3 4 5
+# X-Start-Before:    $rsyslog hadoop-tasktracker hadoop-datanode hadoop-historyserver hadoop-jobtracker hadoop-namenode hadoop-secondarynamenode
+# Short-Description: Volume configuration
+# Description:       Part of knife-bs configuration dealing with volumes
+
+### END INIT INFO
+
+# Author: BitSight Technologies <ops@bitsighttech.com>
+
+# There is nothing but 'start' for this; it does not start a daemon
+
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
+DESC="Drive configuration"
+NAME=bs_volume_init
+SCRIPTNAME=/etc/init.d/$NAME
+
+# Read configuration variable file if it is present
+[ -r /etc/default/$NAME ] && . /etc/default/$NAME
+
+# Load the VERBOSE setting and other rcS variables
+. /lib/init/vars.sh
+
+# Define LSB log_* functions.
+# Depend on lsb-base (>= 3.2-14) to ensure that this file is present
+# and status_of_proc is working.
+. /lib/lsb/init-functions
+
+do_start()
+{
+  <% if @data[:ephemeral] -%>
+  FUN=bs-ephemeral-functions
+  echo "Setting up ephemeral storage"
+  # Read configuration variable file if it is present
+  [ -r /etc/default/$FUN ] && . /etc/default/$FUN
+  <%   if @data.ephemeral[:raid] -%>
+  install_mdadm
+  <%   end %>
+  setup_ephemeral
+  <% end %>
+
+  <% if @data[:ebs] -%>
+  FUN=bs-ebs-functions
+  echo "Setting up EBS storage"
+  # Read configuration variable file if it is present
+  [ -r /etc/default/$FUN ] && . /etc/default/$FUN
+  # Mount drives
+  setup_ebs
+  <% end %>
+
+  <% if @data[:raid] -%>
+  FUN=bs-ebs-functions
+  echo "Setting up RAID storage"
+  # Read configuration variable file if it is present
+  [ -r /etc/default/$FUN ] && . /etc/default/$FUN
+  install_mdadm
+  setup_raid
+  <% end %>
+
+  <% if @data[:swap] -%>
+  FUN=bs-swap-functions
+  echo "Setting up swap"
+  # Read configuration variable file if it is present
+  [ -r /etc/default/$FUN ] && . /etc/default/$FUN
+  setup_swap
+  <% end %>
+
+  <% if @data[:bind] -%>
+  FUN=bs-bind-functions
+  echo "Setting up local bindings"
+  # Read configuration variable file if it is present
+  [ -r /etc/default/$FUN ] && . /etc/default/$FUN
+  local_mounts
+  <% end %>
+}
+
+case "$1" in
+  start)
+    log_daemon_msg "Setting up volumes: $NAME"
+    do_start
+    log_end_msg $?
+    ;;
+  *)
+    echo "Usage: $SCRIPTNAME {start}" >&2
+    exit 3
+    ;;
+esac
+
+:

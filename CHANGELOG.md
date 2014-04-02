@@ -1,5 +1,23 @@
 # CHANGELOG for knife-bs
 
+## 7.1.8:
+
+* [Pasha] [FIX] Reorganized init scripts into one script with functions
+separated into separate source-able files for modularity
+
+    - Various bug fixes with init scripts
+    - Fixed hash merging for mixin data overrides
+    - Removed some resolved comments
+    - Attaching EBS volumes using `knife bs ebs --attach ...` functioning
+    - Improved tagging by removing key cleaning in Hashit
+    - Implemented pre and post chef hooks
+
+## 7.1.7:
+
+* [Pasha] [FIX] Re-added fstab entry to init script for auto-mounting at
+  the correct time. Better bs-ephemeral error handling. Cloud hooks can
+  be run before or after chef (schema changes)
+
 ## 7.1.6:
 
 * [Pasha] [FIX] Threading issue with bs.vars resolved

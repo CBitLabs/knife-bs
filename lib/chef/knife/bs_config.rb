@@ -145,7 +145,8 @@ class Chef
         @yaml.regions.each do |reg, h|
           if h[:vpc]
             h.vpc.each do |_vpc, vpcdata|
-              return reg, vpcdata if _vpc == Hashit.clean_key(vpc)
+              ## REVIEW lack of clean_key
+              return reg, vpcdata if _vpc == vpc
             end
           end
         end
@@ -157,8 +158,8 @@ class Chef
         vpc    ||= @vpc
         return nil unless [vpc, subnet].all?
         _, vpcdata = get_region_vpc(vpc)
-        _, results = vpcdata.subnets.find do |snet, data| 
-          snet == BsConfig.clean_key(subnet)
+        _, results = vpcdata.subnets.find do |snet, data|
+          snet == subnet
         end
         return results
       end
@@ -239,7 +240,7 @@ class Chef
           elsif both_are.call(Array)
             v1.concat(v2)
           else
-            v1 ? v1 : v2
+            v2 ? v2 : v1
           end
         end
 
@@ -255,8 +256,7 @@ class Chef
           d = self.send(method, mixin)
           next unless d
 
-          # binding.pry if mixin == 'ami' &&
-          #                method == :get_mixin_data_for_vpc
+          # binding.pry if mixin == 'ami'
           case d
           when String, Numeric
             mixin_data = d

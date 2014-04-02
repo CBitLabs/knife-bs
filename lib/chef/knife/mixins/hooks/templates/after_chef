@@ -1,0 +1,4 @@
+#!/bin/bash
+<% @data[:after_chef] && @data.after_chef.each do |hook| %>
+<%=hook %>
+<% end -%>

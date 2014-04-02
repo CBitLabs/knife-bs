@@ -1,7 +1,5 @@
-desc: "Commands/hooks to run during provisioning"
-type: map
+desc: "SSH keys to install for user ubuntu"
+type: seq
 required: no
-mapping:
-  "=":
-    type: str
-    required: no
+sequence:
+  - type: str

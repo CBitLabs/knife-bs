@@ -1,25 +1,20 @@
 ## BitSight Technologies
 description: "Configure volumes on cloud instance start"
 
-default:
-  default_action: &default_action
-    run-at: before_chef
-    dir: /etc/init.d
-    mode: 755
-    owner: root
-    group: root
-
 mixin:
   files:
-    bs-volumes:
+    bs-volumes: &func_install
       dir: /etc/default
       mode: 644
       owner: root
       group: root
-
-    bs-ephemeral:
-      <<: *default_action
-    bs-ebs:       *default_action
-    bs-raid:      *default_action
-    bs-bind:      *default_action
-  
+    bs-bind-functions:      *func_install
+    bs-swap-functions:      *func_install
+    bs-ebs-functions:       *func_install
+    bs-ephemeral-functions: *func_install
+    bs_volume_init:
+      run-at: before_chef
+      dir: /etc/init.d
+      mode: 755
+      owner: root
+      group: root

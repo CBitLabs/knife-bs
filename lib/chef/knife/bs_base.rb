@@ -102,6 +102,7 @@ class Chef
         elastic_ip.server=(server)
       end
 
+      ## REVIEW - move to mixin?
       def attach_volume(server, volume_id, device)
         #Volume id and fqdn are provided while creating clusters
         ui.msg("\nTrying to attach Volume : #{volume_id}"\
@@ -116,6 +117,7 @@ class Chef
         volume
       end
 
+      ## REVIEW - move to mixin?
       def attach_volumes(server,volumes)
         volumes.each { |v| attach_volume(server, v.id, v.tags['device']) }
       end
@@ -213,7 +215,6 @@ class Chef
         create_tags(id, tags)
       end
 
-      ## OK
       def create_tags(entity_id, tags)
         begin
           raise ArgumentError.new('Resource ID cannot be nil') if entity_id.nil?
@@ -466,7 +467,6 @@ class Chef
 
       # Checks to see if we need to clean ourselves up (node & client exist)
       # before proceeding with server creation.
-      ## OK
       def chef_objects_dirty?(name)
         begin
           node_exists = true
@@ -490,7 +490,6 @@ class Chef
         node_exists && client_exists
       end
 
-      ## OK
       def cleanup_chef_objects(name = nil)
         puts "\nCleaning up #{name} Chef objects on #{Chef::Config[:chef_server_url]}"
         tries = 10
@@ -617,9 +616,7 @@ class Chef
         ui.msg("\nCalculating AMI ID")
         begin
           ami_info = @bs.mixins.ami.data
-          if ami_info[:ami]
-            @bs[:image] = ami_info.ami
-          elsif @bs[:latest]
+          if @bs[:latest]
             search_tag = [ami_info.prefix,
                           ami_info.suffix] * '*'
             ui.msg("Searching for latest ami with tag #{search_tag}")
@@ -674,10 +671,9 @@ class Chef
             amiprefix = image.split(mp_suffix).first
             ui.msg(amiprefix.inspect)
             get_ami_with_tag(amiprefix + ami_info.suffix)
+          elsif @bs[:amiprefix] && (@bs[:amiprefix] != ami_info[:prefix])
             # Only want to do this section if prefix was
             # specified on command line
-
-          elsif @bs[:amiprefix] && (@bs[:amiprefix] != ami_info[:prefix])
             if ami_info.has_key?(suffix)
               ami_name = @bs.amiprefix + ami_info.suffix
               get_ami_with_tag(ami_name)
@@ -687,6 +683,8 @@ class Chef
                        "with a prefix but without a suffix."
               raise YamlError.new(errmsg)
             end
+          elsif ami_info[:base]
+            @bs[:image] = ami_info.base
           end
         rescue Exception => e
           ui.fatal("#{ui.color(e.class.to_s, :gray, :bold)}: #{e.message}")
@@ -702,7 +700,6 @@ class Chef
         @bs.image
       end
 
-      ## OK
       def get_elastic_ip
         # Returns a Fog::Compute::AWS::Address Object
         domain = @bs[:novpc] ? 'standard' : 'vpc'

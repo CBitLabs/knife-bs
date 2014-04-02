@@ -1,0 +1,27 @@
+#!/bin/bash
+
+# Read base configuration
+[ -r /etc/default/bs-volumes ] && . /etc/default/bs-volumes
+
+<% if @data[:swap] -%>
+setup_swap()
+{
+  <% if @data.swap[:volume] %>
+  mkswap -f <%= @data.swap.mount %>
+  swapon <%= @data.swap.mount %>
+  <% else %>
+  SWP=<%= @data.swap.mount || @data.swap.mount_detail.dir %>
+  ## TODO check that basedir of mount is empty in filesystem.
+  ## If not you can lose space by covering up files
+  [ -e $SWP ] && swapon -s | grep $SWP
+  if [ ! $? -eq 0 ]; then
+    if [ ! -e $SWP ]; then
+      swapoff -a
+      fallocate -l <%=@data.swap.size%> $SWP
+      mkswap $SWP
+    fi
+    swapon $SWP
+  fi
+  <% end -%>
+}
+<% end %>

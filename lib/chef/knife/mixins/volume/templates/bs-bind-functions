@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# Read base configuration
+[ -r /etc/default/bs-volumes ] && . /etc/default/bs-volumes
+
+<% if @data[:bind] -%>
+local_mounts()
+{
+  <% @data.bind.each do |src, dest| %>
+  <%src = src.gsub('_','/')%>
+  [ -e <%=dest%> ] && rm -rf <%=dest%>
+  [ ! -e <%=src%> ] && mkdir <%=src %>
+  ln -s <%=src%> <%=dest%>
+  chmod 1777 <%=dest%>
+  <% end %>
+}
+<% end %>

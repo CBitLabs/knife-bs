@@ -1,0 +1,190 @@
+#!/bin/bash
+
+# Read base configuration
+[ -r /etc/default/bs-volumes ] && . /etc/default/bs-volumes
+
+# Information accessors
+
+# EBS volume information defined inside the YAML
+# Drives that are not defined here will not be mounted on start
+ebs_info()
+{
+  case $1 in
+    <% @data.ebs.each do |d, info| -%>
+    '<%=d.gsub('s','xv')%>')
+       case $2 in
+         'size')
+           # Drive size.
+           #* May become inaccurate if drives are attached
+           echo "<%= info[:size] %>"
+           return 0
+           ;;
+         'mnt')
+           echo "<%= get_mount(d) %>"
+           return 0
+           ;;
+         'format')
+           echo "<%= info[:format] || 'ext4' %>"
+           return 0
+           ;;
+         'raid')
+           echo "<%= info[:raid] %>"
+           return <%= info[:raid] ? 0 : 1 %>
+           ;;
+         'temp')
+           return <%= info[:temp] ? 0 : 1 %>
+           ;;
+         *)
+           return 0
+           ;;
+       esac
+       ;;
+    <% end %>
+  esac
+  # Invalid drive or parameter
+  return 1
+}
+<% if @data[:raid] %>
+raid_info()
+{
+  case $1 in
+    <% @data.raid.each do |name, info| -%>
+    '<%=name%>')
+       case $2 in
+         'level')
+           echo "<%= info[:level] %>"
+           return 0
+           ;;
+         'mnt')
+           echo "<%= get_mount(name, :raid) %>"
+           return 0
+           ;;
+         'format')
+           echo "<%= info[:format] %>"
+           return 0
+           ;;
+         *)
+           return 0
+           ;;
+       esac
+       ;;
+    <% end %>
+  esac
+  # Invalid drive or parameter
+  return 1
+}
+<% end %>
+
+# ----------------------------------------------------------------------
+# Functions
+
+setup_ebs()
+{
+  # Reason this isn't templated is to avoid errors on startup
+  root_drive=`df -h | grep -v grep | awk 'NR==2{print $1}'`
+  ebs_drives=`ls -1 /dev/xvd*`
+  for drive in $ebs_drives; do
+    [ "$root_drive" == "$drive" ] && continue # do not touch root drive
+    device_is_mounted $drive      && continue # don't unmount, might be in use
+    ! ebs_info $drive             && continue # not defined, skip (REVIEW?)
+    ebs_info $drive raid          && continue # part of raid, ignore here
+
+    format=`ebs_info $drive format` # filesystem type
+    mnt=`ebs_info $drive mnt`       # mount point
+    fmt_as $format $drive
+    partprobe
+    [ ! -e $mnt ] && mkdir -p $mnt
+    mount -t $format $drive $mnt
+    e2label $drive `basename $mnt`
+    echo "LABEL=`basename $mnt`  $mnt  $format  noatime,nodiratime,defaults,comment=knifebsebs 0 2" >> /etc/fstab
+    cat /etc/fstab
+    chmod a+w $mnt
+  done
+}
+
+<% if @data[:raid] %>
+get_raid_dev() {
+  MD_PATH=/dev/md
+  if [ ! -d $MD_PATH ]; then return 1; fi
+
+  dev_name=`find $MD_PATH -name "*$1"`
+  if [ "$dev_name" == "" ]; then
+    return 1;
+  fi
+
+  device=`readlink -f "$dev_name" 2> /dev/null`
+
+  echo $device
+  return 0
+}
+
+raid_is_mounted() {
+  raid_device=`get_raid_dev $1`
+  if [ $? -eq 0 ]; then
+    device_is_mounted $raid_device
+    return $?
+  fi
+  # Named device doesn't exist, maybe we just mounted it
+  raid_device=`grep $1 /etc/mdadm/mdadm.conf`
+  Return1Fail
+
+  raid_device=`echo $raid_device | cut -d ' ' -f 2`
+  df | grep "$raid_device" &> /dev/null
+}
+
+try_mount_raid() {
+  if ! raid_is_mounted $1; then
+    raid=`get_raid_dev $1`
+    if [ $? -eq 0 ]; then
+      # Try to mount it if device exists
+      mount -t `raid_info $1 format` -o noatime \
+        $raid `raid_info $1 mnt` >/dev/null 2>&1
+      chmod a+w `raid_info $1 mnt`
+      Return0Success
+    fi
+  fi
+  # fail otherwise
+  return 1
+}
+
+setup_raid()
+{
+  <% i = 50 -%>
+  <% @data.raid.each do |name, info| %>
+  try_mount_raid <%= name %>
+  if [ $? -eq 1 ]; then
+    service mdadm stop
+    components="<%= get_ebs_raid_devs(name).map {|d,_| d.gsub('_','/').gsub('s','xv')}.join(' ') %>"
+    component_count=0
+    for ebs in $components; do
+      wipe_blocks $ebs
+      sed -i "/`echo $ebs | cut -d'/' -f 2`/d" /etc/fstab
+      component_count=$((component_count + 1 ))
+    done
+
+    raid_fmt=`raid_info <%= name %> format`
+    raid_mnt=`raid_info <%= name %> mnt`
+
+    [ ! -e $raid_mnt ] && mkdir -p $raid_mnt
+    umount -f $raid_mnt &> /dev/null
+    service mdadm start
+    partprobe
+    mdadm --manage `get_raid_dev <%= name %>` --stop > /dev/null 2>&1
+    mdadm --create --name=<%= name %> --verbose /dev/md<%=i%> \
+          --level=`raid_info <%= name %> level` -c256 \
+          --raid-devices=$component_count $components
+    Return1Fail
+
+    # setup mdadm.conf so on node restart it's fast
+    echo DEVICE $components | tee /etc/mdadm/mdadm.conf
+    echo "`mdadm --detail --scan`" | tee -a /etc/mdadm/mdadm.conf
+
+    fmt_as $raid_fmt /dev/md<%= i %>
+    blockdev --setra 65536 /dev/md<%= i %>
+    mount -t $raid_fmt -o noatime /dev/md<%= i %> $raid_mnt
+    chmod a+w $raid_mnt
+    Return1Fail
+  fi
+  <% i+= 1; end -%>
+}
+<% end -%>

@@ -277,9 +277,9 @@ need to be specified in the yaml or else those volumes will not be attached.
         tag_servers
         associate_eips if @bs[:associate_elastic_ip]
         restore_from_snapshots if @bs[:restore_from_snapshot]
-        setup_ephemeral
         attach_ebs_volumes if @bs[:attach_volume]
         create_ebs_volumes if @bs[:create_ebs]
+        setup_volumes
         validate!
         check_ssh
         pre_bootstrap
@@ -677,16 +677,27 @@ need to be specified in the yaml or else those volumes will not be attached.
         end
       end
 
-      def setup_ephemeral
+      def setup_volumes
         Parallel.map(@bs.servers, in_threads: @bs.batch_size.to_i) do |server|
-          @bs.mixins.volume.volume_functions(server)
-          @bs.mixins.volume.setup_ephemeral(server)
+          ## REVIEW possible threading issues, find a common sol'n
+          @bs.mixins.volume.configure do |v|
+            v.volume_functions(server)
+            v.bs_ebs_functions(server)       if v.data[:ebs]
+            v.bs_ephemeral_functions(server) if v.data[:ephemeral]
+            v.bs_swap_functions(server)      if v.data[:swap]
+            v.bs_bind_functions(server)      if v.data[:bind]
+
+            # Install/launch init script
+            v.bs_volume_init(server)
+          end
         end
       end
 
       def attach_ebs_volumes
         Parallel.map(@bs.servers, in_threads: @bs.batch_size.to_i) do |server|
           begin
+            ## TODO get rid of associations or expand it for generic
+            ## per-server data storage
             fqdn = @bs.associations[server.id]['fqdn']
             ui.msg(ui.color("Attaching volume(s) to : #{fqdn} "\
                             "(#{server.private_ip_address})", :magenta))
@@ -699,6 +710,11 @@ need to be specified in the yaml or else those volumes will not be attached.
 
             @bs.mixins.volume.configure do |vmix|
               volumes.each do |v|
+                # Retrieve data from YAML pertaining to this drive
+                info = vmix.data.ebs[v.tags['device']]
+                raise RuntimeError.new("Volume #{v.tags['device']}"\
+                                       " not defined") unless info
+                puts "Mount point : #{@bs.mixins.volume.get_mount(v.tags['device'])}"
                 # Attach the volume to the instance
                 attach_volume(server, v.id, v.tags['device'])
                 ## TODO ##
@@ -708,14 +724,8 @@ need to be specified in the yaml or else those volumes will not be attached.
                 ## ERROR out if after ATTACHING existing drives and
                 ## CREATING new ones there is not enough to fulfill the
                 ## RAID array
-                # Retrieve data from YAML pertaining to this drive
-                info = vmix.data.ebs[v.tags['device']]
-                raise RuntimeError.new("Volume #{v.tags['device']}"\
-                                       " not defined") unless info
-                puts "Mount point : #{@bs.mixins.volume.get_mount(v.tags['device'])}"
               end
             end
-            @bs.mixins.volume.ebs_init(server)
           rescue SystemExit, Exception => e
             ui.warn("#{e.message}\nCaught SystemExit, Exception while attaching"\
                     " EBS volume for #{@bs.associations[server.id]['fqdn']}.")
@@ -735,7 +745,6 @@ need to be specified in the yaml or else those volumes will not be attached.
               create_volume(server, d.gsub('_', '/'),
                             info, assoc['fqdn'])
             end
-            @bs.mixins.volume.ebs_init(server)
 
           rescue SystemExit, Exception => e
             ui.warn("#{e.message}\nCaught SystemExit, Exception while"\
@@ -779,8 +788,7 @@ need to be specified in the yaml or else those volumes will not be attached.
             # Instead of having add_general_commands, take care of the
             # rest of the mixins here, including ones that we don't have
             # prescience of
-            ## TODO finish cloud hooks template
-            @bs.mixins.hooks.apply(server)        if @bs.mixins[:hooks]
+            @bs.mixins.hooks.apply(server, 'before_chef') if @bs.mixins[:hooks]
             @bs.mixins.ssh_keys.authorize(server) if @bs.mixins[:ssh_keys]
 
             ## Figure out a better way to store DNS info
@@ -840,6 +848,7 @@ need to be specified in the yaml or else those volumes will not be attached.
       def post_bootstrap
         Parallel.map(@bs.servers, in_threads: config[:batch_size].to_i) do |server|
           begin
+            @bs.mixins.hooks.apply(server, 'after_chef') if @bs.mixins[:hooks]
             ## TODO have one ssh object that you pass around
             ssh = Chef::Knife::Ssh.new
             ssh.ui = ui

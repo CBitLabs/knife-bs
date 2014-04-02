@@ -42,7 +42,9 @@ To detach and delete an ebs volume for a running server:
       option :vol_id,
              :short => '-i VOLUME_ID',
              :long => '--volume-id VOLUME_ID',
-             :description => 'Volume id of the volume to delete. If specified, any other parameters are used to verify the correct device.'
+             :description => 'Volume id of the volume to delete. '\
+                             'If specified, any other parameters are '\
+                             'used to verify the correct device.'
 
       option :detach,
              :long => '--detach',

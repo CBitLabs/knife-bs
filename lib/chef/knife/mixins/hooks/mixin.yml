@@ -2,7 +2,5 @@ name: hooks
 description: "Commands to run on the instance"
 mixin:
   files:
-    cloud_hooks:
-      outfile: hooks
-      run-at: after_chef
-      run-as: root
+    before_chef:
+    after_chef:

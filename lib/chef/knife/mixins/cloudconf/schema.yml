@@ -1,0 +1,9 @@
+# No actual validation data for our configuration.
+#
+# Feel free to modify this schema and the associated
+# template to harness parameters from bs-atlas.yaml
+#
+
+desc: "Cloud configuration parameters"
+type: any
+required: no

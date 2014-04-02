@@ -28,8 +28,8 @@ class VolumeMixin
 
     bsconf.nodes.each do |fqdn|
       results = {
-        :exist?      => false, 
-        :duplicates? => false, 
+        :exist?      => false,
+        :duplicates? => false,
         :temp?       => false
       }
       list_of_vols = [] # Array of Arrays
@@ -40,8 +40,7 @@ class VolumeMixin
         # Append to list_of_vols the Array built by Array#select
         list_of_vols << bsconf.connection.volumes.select do |v|
           # volumes match if they're 'Name' and 'device' tags are equal
-          tfqdn == v.tags['Name'] &&
-            dev == ::Chef::Knife::BsConfig.clean_key(v.tags['device'])
+          tfqdn == v.tags['Name'] && dev == v.tags['device']
         end
         # reset fqdn back to normal if we changed it to look for temps.
         #fqdn = fqdn.gsub("#{mnt}-",'') if info[:temp]
@@ -135,23 +134,27 @@ class VolumeMixin
     action('install', server, 'bs-volumes')
   end
 
-  def ebs_init(server)
-    action('install', server, 'bs-ebs') do |ssh, execonf|
-      update_rcd(ssh, File.basename(execonf[:installed][server.id]),
-                 'defaults 01')
-      service(ssh, 'bs-ebs', 'start')
-    end
+  def bs_ebs_functions(server)
+    action('install', server, 'bs-ebs-functions')
   end
 
-  def setup_ephemeral(server)
-    action('install', server, 'bs-ephemeral') do | ssh, execonf |
-      update_rcd(ssh, File.basename(execonf[:installed][server.id]),
-                 'defaults 01')
-      service(ssh, 'bs-ephemeral', 'start')
-    end
+  def bs_ephemeral_functions(server)
+    action('install', server, 'bs-ephemeral-functions')
   end
 
-  def setup_swap(server)
-    action('install', server, 'bs-swap')
+  def bs_swap_functions(server)
+    action('install', server, 'bs-swap-functions')
+  end
+
+  def bs_bind_functions(server)
+    action('install', server, 'bs-bind-functions')
+  end
+
+  def bs_volume_init(server)
+    action('install', server, 'bs_volume_init') do |ssh, execonf|
+      update_rcd(ssh, File.basename(execonf[:installed][server.id]),
+                 'defaults 01')
+      service(ssh, 'bs_volume_init', 'start')
+    end
   end
 end

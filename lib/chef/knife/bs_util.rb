@@ -1,5 +1,6 @@
 require 'chef/knife'
 require 'chef/knife/ec2_base'
+require 'pry'
 
 class Chef
   class Knife
@@ -9,7 +10,7 @@ class Chef
       def initialize(val)
         begin
           @hash = {}
-          @@bad_method_regex = Regexp.new(/[^a-zA-Z0-9!\?\=]/)
+          @@bad_method_regex = Regexp.new(/[^a-zA-Z0-9!\=]/)
           unless val.respond_to?('[]') & hash.respond_to?('[]=')
             raise Exception.new('No getters or setters')
           end
@@ -25,13 +26,12 @@ class Chef
             raise Exception.new('Cannot iterate over input')
           end
         rescue Exception=>e
-          puts "Cannot convert given input to a hash (#{e.message})"
-          exit 1
+          puts "Cannot convert given input (#{val.inspect}) to a hash (#{e.message})"
         end
       end
 
       def has_key?(k)
-        @hash.has_key?(BsConfig.clean_key(k.to_s))
+        @hash.has_key?(k.to_s)
       end
 
       def self.clean_key(k)
@@ -43,13 +43,13 @@ class Chef
         # Replace all invalid characters with underscore
         setv = v.is_a?(Hash) ? SubConfig.new(v) : v
         self.instance_variable_set("@#{cleaned_key}", setv)
-        self.class.send(:define_method, cleaned_key, 
+        self.class.send(:define_method, cleaned_key,
                         proc {self.instance_variable_get("@#{cleaned_key}")})
         self.class.send(:define_method, "#{cleaned_key}=",
-                        proc do |v| 
+                        proc do |v|
                           setv = v.is_a?(Hash) ? SubConfig.new(v) : v
                           self.instance_variable_set("@#{cleaned_key}", setv)
-                          @hash[cleaned_key] = setv
+                          @hash[k] = setv
                         end )
         # return cleaned key, and either a nested config or the scalar
         return cleaned_key, setv
@@ -73,12 +73,12 @@ class Chef
       end
 
       def internal_get(k)
-        @hash[Hashit.clean_key(k)]
+        @hash[k]
       end
 
       def internal_set(k, v)
         key, val = make_attr(k, v)
-        @hash[key] = val
+        @hash[k] = val
       end
 
       def [](config_option)
