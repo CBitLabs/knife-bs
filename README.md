@@ -47,6 +47,8 @@ In order for knife-bs to work, you must add some additional information:
     knife[:yaml]            = '<PATH TO YOUR bs-atlas.yaml>'
     knife[:mixins]          = '<DIRECTORY WITH CUSTOM USER MIXINS>'
 
+** Make sure `knife[:mixins]` directory exists **
+
 For more details about configuring chef/knife, click
 [here](http://docs.opscode.com/config_rb_knife.html)
 

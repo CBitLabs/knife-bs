@@ -30,6 +30,7 @@ Gem::Specification.new do |s|
   s.add_dependency 'parallel', '~> 0.6.2'
   s.add_dependency 'ruby-progressbar', '~> 1.1.1'
   s.add_dependency 'awesome_print', '~> 1.0.0'
+  s.add_dependency 'kwalify', '~> 0.7.2'
 
   # Development requirements
   # s.add_development_dependency 'rspec-core'

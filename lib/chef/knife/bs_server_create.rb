@@ -85,7 +85,7 @@ volume:
       /dev/sdg:
         raid_device: ebs
 
-knife bs server create ame1.dev cluster master --ebs 200,300
+knife bs server create ame1.dev master --ebs 200,300
 
 This will create two volumes of size 200,300 and make them part of a raid.
 The raid device name will be ebs and will be mounted on /ebs.
@@ -94,7 +94,6 @@ To recreate the server with raid volumes, both the devices /dev/sdf and/dev/sdg
 need to be specified in the yaml or else those volumes will not be attached.
 ############################################################################
 "
-      ## CLUSTER?
       option :flavor,
              :short => "-f FLAVOR",
              :long => "--flavor FLAVOR",
@@ -118,7 +117,6 @@ need to be specified in the yaml or else those volumes will not be attached.
              :description => 'Bootstrap a distro using a template',
              :proc => Proc.new { |d| Chef::Config[:knife][:distro] = d }
 
-      ## CLUSTER?
       option :run_list,
              :short => '-r RUN_LIST',
              :long => '--run-list RUN_LIST',
@@ -131,7 +129,6 @@ need to be specified in the yaml or else those volumes will not be attached.
              :description => 'Number of seconds between batches.',
              :default => 0.5
 
-      ## CLUSTER?
       option :number_of_nodes,
              :short => '-n NODES',
              :long => '--count NODES',
@@ -149,36 +146,30 @@ need to be specified in the yaml or else those volumes will not be attached.
              :description => 'Stop on first failure of remote command',
              :default => false
 
-      ## CLUSTER? what about suffix?
       option :amiprefix,
              :short => '-a AMIPREFIX',
              :long => '--amiprefix AMIPREFIX',
              :description => 'The ami prefix to use, if ami-suffix is provided in the yaml.'
 
-      ## OK
       option :dry_run,
              :long => '--mock',
              :description => "Don't really run, just use mock calls"
 
-      ## CLUSTER?
       option :ebs,
              :long => '--ebs SIZE1,[SIZE2..]',
              :description => 'The size of new Permanent EBS volume to'\
                              ' create in GB, for EBS-backed instances',
              :proc => lambda { |o| o.split(/[\s,]+/) }
 
-      ## CLUSTER?
       option :ebs_optimized,
              :long => '--ebs-optimized',
              :description => 'Enabled optimized EBS I/O'
 
-      ## CLUSTER?
       option :price,
              :short => '-p PRICE',
              :long => '--spot-price PRICE',
              :description => 'The max spot price to be set'
 
-      ## CLUSTER?
       option :hostname,
              :short => '-N NAME',
              :long => '--node-name NAME',
@@ -203,7 +194,6 @@ need to be specified in the yaml or else those volumes will not be attached.
              :description => 'Quit after x number of stages',
              :default => 100
 
-      ## CLUSTER?
       option :skip_chef,
              :long => '--nochef',
              :description => 'Skip Chef Bootstrap'
@@ -247,11 +237,6 @@ need to be specified in the yaml or else those volumes will not be attached.
              :long => '--from SUBNET',
              :description => 'Restore snapshots from given subnet.'
 
-      option :stack,
-             :long => '--stack',
-             :description => 'Interpret second arg as stack, not profile'
-             # This maintains our default of spinning up profiles
-
       def run
         ## TODO review verbosity levels
         $stdout.sync = true
@@ -283,7 +268,6 @@ need to be specified in the yaml or else those volumes will not be attached.
         validate!
         check_ssh
         pre_bootstrap
-        ## REVIEW why can't novpc instances be bootstrapped?
         bootstrap_servers unless @bs[:skip_chef] or @bs[:novpc]
         post_bootstrap
         reboot_servers
@@ -302,18 +286,10 @@ need to be specified in the yaml or else those volumes will not be attached.
         end
         name_args.reverse!
         config[:vpc], config[:subnet] = name_args.pop.split('.')
-        case name_args.size
-        when 1
-          unless config[:stack]
-            config[:profile] = name_args.pop
-          else
-            # Only stack is provided, spin up all profiles
-            config[:stack] = name_args.pop
-          end
-        when 2
-          config[:stack], config[:profile] = name_args
-        end
+        config[:profile] = name_args.pop
+        ## REVIEW having cloudconf and ddns here?
         base_config(mixins = ['cloudconf', 'ddns']) # --> @bs
+
 
         Chef::Config[:knife][:image] = get_ami_id
 
@@ -373,7 +349,7 @@ need to be specified in the yaml or else those volumes will not be attached.
         ## TODO adapt for cluster create...
         @bs.mixins.price.configure do |pricemix|
           pricemix.data = @bs[:price] if @bs[:price]
-          @bs[:create_spot] = true if pricemix.data
+          @bs[:create_spot] = true unless pricemix.data.empty?
         end
 
         @bs[:subnet_id] = get_subnet_id([@bs.vpc, @bs.subnet] * '.')

@@ -29,14 +29,22 @@ OPTIONS:
       :description => 'Column to sort table by. Choices: name, cidr, ips, vpc, az, state'
 
       def run
+        $stdout.sync = true
         # Put Fog into mock mode if --dryrun
         if config[:dry_run]
           Fog.mock!
           Fog::Mock.delay = 0
         end
 
-        $stdout.sync = true
-        
+        build_config(name_args)
+
+        subnets = get_subnets
+        exit 1 if subnets.size == 0
+
+        print_subnet_table(subnets)
+      end
+
+      def build_config(name_args)
         name_args[1] = '*' if name_args.size == 1
         if name_args.size != 2
           show_usage
@@ -47,35 +55,26 @@ OPTIONS:
           if %w[name cidr ips vpc az state].include?(config[:sort_by])
             @sortcol = config[:sort_by]
           else
-            ui.error("Invalid column '#{config[:sort_by]}' to sort by, not sorting")
+            ui.error("Invalid column '#{config[:sort_by]}' "\
+                     "to sort by, not sorting")
             @sortcol = nil
           end
         else
           @sortcol = nil
         end
 
-        @vpc = name_args[0]
-        pattern = name_args[1]
-        @subnets = get_subnets(@vpc, pattern)
-
-        # Find Servers
-        #@servers = get_servers(name_args)
-        exit 1 if @subnets.size == 0
-
-        print_subnet_table
+        @vpc = name_args[0].dup
+        @pattern = name_args[1].dup
+        base_config
       end
 
-      def get_subnets(vpc, pattern)
+      def get_subnets
         begin
           puts "\nTrying to locates subnet(s)"
-          if pattern =~ /\*/
-            pattern = pattern
-          else
-            pattern = "#{pattern}*"
-          end
+          @pattern << '*' unless @pattern =~ /\*/
           filter = {}
           # tag 'Name' => ame1.dev
-          filter['tag-value'] = "#{vpc}.#{pattern}"
+          filter['tag-value'] = "#{@vpc}.#{@pattern}"
           subnets = connection.subnets.all(filter)
           unless subnets.nil? || subnets.length == 0
             if @sortcol
@@ -87,7 +86,7 @@ OPTIONS:
             raise "Could not locate subnet(s) with tag value : #{filter['tag-value']}"
           end
         rescue Exception => e
-          ui.warn("#{e.message}\nError getting subnets for #{vpc}, #{pattern}")
+          ui.warn("#{e.message}\nError getting subnets for #{@vpc}, #{@pattern}")
           exit 1
         end
       end
@@ -104,7 +103,7 @@ OPTIONS:
         return subnets
       end
 
-      def print_subnet_table
+      def print_subnet_table(subnets)
         headings = [
           ui.color('Name', :bold),
           ui.color('CIDR', :bold),
@@ -115,7 +114,7 @@ OPTIONS:
         ].flatten.compact
 
         subnet_list = []
-        @subnets.each do |subnet|
+        subnets.each do |subnet|
           row = []
           row << subnet.tag_set['Name'].gsub("#{@vpc}.", '').to_s
           row << subnet.cidr_block.to_s

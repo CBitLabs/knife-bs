@@ -10,6 +10,11 @@ class Chef
   class Knife
     class BsRestore < Knife::BsServerCreate
 
+      ## TODO
+      ## Test with multiple EBS volumes on one node
+      ## Test with multiple nodes (one EBS)
+      ## Test with multiple nodes (multiple EBS)
+      ## Test with multiple snapshots available
       include Knife::BsBase
 
       deps do
@@ -21,7 +26,7 @@ class Chef
       banner "
 ############################################################################
 ----------------------------------------------------------------------------
-knife bs restore VPC.SUBNET HOSTNAME(options)
+knife bs restore VPC.SUBNET (HOSTNAME|STACK) (options)
 ----------------------------------------------------------------------------
 
 Restore Process
@@ -30,16 +35,30 @@ created by the snapshot command. By default the snapshots are searched for
 the corresponding subnet, unless you want to restore snapshots from a
 different subnet.
 Usage:
-To restore the dev subnet:
-    knife bs restore ame1.dev
+To restore the dev subnet cluster:
+    knife bs restore ame1.dev cluster --stack
 To restore the dev subnet with production data:
-    knife bs restore ame1.dev --from production
-To restore the dev subnet with production and then delete the old detatched dev volumes :
-    knife bs restore ame1.dev --from production --delete
+    knife bs restore ame1.dev cluster --stack --from prd1
+To restore the dev subnet with production and delete the old dev volumes :
+    knife bs restore ame1.dev cluster --stack --from prd1 --delete
+To restore an ms node in the dev subnet with prod data:
+    knife bs restore ame1.dev ms101 --from prd1
+There are 11 phases that you can --quit <STAGE> after:
+1: Getting servers
+2: Locate snapshots/volumes
+3: Create new volumes from snapshots
+4: Wait for new volumes to be ready
+5: Tag the new volumes
+6: Rename the old volumes
+7: Shut down on-demand instances
+8: Terminate spot instances
+
 ############################################################################
 "
       option :only_config,
              :long => '--dryrun',
+             :boolean => true,
+             :default => false,
              :description => 'Print config and exit'
 
       option :from,
@@ -49,7 +68,17 @@ To restore the dev subnet with production and then delete the old detatched dev 
 
       option :delete_old_volumes,
              :long => '--delete',
-             :description => 'Delete old volumes after restoring from snapshots.'
+             :boolean => true,
+             :default => false,
+             :description => 'Delete old volumes after restoring from '\
+                             'snapshots.'
+
+      option :rename_old_volumes,
+             :long => '--rename',
+             :boolean => true,
+             :default => true,
+             :description => 'Rename old volumes after restoring from '\
+                             'snapshots.'
 
       option :quit_at,
              :short => '-q STAGE',
@@ -59,15 +88,25 @@ To restore the dev subnet with production and then delete the old detatched dev 
 
       option :force_detach,
              :long => '--force',
-             :description => "Don't shutdown the server, just force detach the volume."
+             :boolean => true,
+             :description => 'Do not shutdown the server, '\
+                             'just force detach the volume.'
 
+      ## REVIEW
       option :matching_ami,
              :long => '--match',
-             :description => "Shutdown the servers and reinstanciate with the same AMI. By default the latest AMI is used."
+             :boolean => true,
+             :description => 'Shutdown the servers and re-instantiate with '\
+                             'the same AMI. By default the latest AMI is used.'
 
       option :from_version,
              :long => '--version VERSION',
              :description => 'Restore a specific version of the snapshots.'
+
+      option :stack_interpret,
+             :long => '--stack',
+             :boolean => true,
+             :description => 'Interpret second arg as stack, not hostname'
 
       def run
         #
@@ -79,175 +118,222 @@ To restore the dev subnet with production and then delete the old detatched dev 
         end
         $stdout.sync = true
 
+        build_config(name_args)
+        exit 1 if config[:only_config]
+
+        restore
+      end
+
+      def build_config(name_args)
         if not [1,2].include?(name_args.size)
           show_usage
           exit 1
         end
 
+        name_args.reverse!
+        config[:vpc], config[:subnet] = name_args.pop.split('.')
+        base_config
+        ! name_args.size.zero? && @bs[:stack_interpret] ?
+          @bs[:stack]  = name_args.pop :
+          @bs[:filter] = name_args.pop
+
+        # If from is not specified then, by default restore from given subnet.
+        @bs[:from] ||= @bs.subnet
         config[:verbosity] = 2 if config[:only_config]
-        build_config(name_args)
-        exit 1 if config[:only_config]
+      end
 
-        servers = []
-        spot_servers = []
-        permanent_servers = []
-        associations = {}
-
-        # If from is not specified then, by default restore from the given subnet.
-        if config[:from].nil?
-          config[:from] = name_args.first.split('.').last
-        end
-        puts "\n\nRestoring data from #{config[:from].capitalize}\n\n"
-        suffix = "." + "#{config[:vpc]}" + "." + "#{config[:domain]}"
-
-        filters = []
-        #
-        # Get the Servers
-        #
-        if name_args.size == 1
-          # Restore the entire cluster
-          filters << "ms101"
-          filters << "rs*"
-        elsif name_args.size == 2
-          # Restore only the selective servers
-          filters << name_args.last
+      def find_servers(vpc = @bs.vpc)
+        if @bs[:stack]
+          stack_def = @bs.get_stack
+          stack_def.profiles.map do |p,info|
+            profile = @bs.get_profile(p)
+            pos = profile.hostname =~ /\%/
+            hostname = pos ? profile.hostname[0...pos] + '*' : profile.hostname
+            fqdn = [hostname, @bs.subnet,
+                    vpc,      @bs.domain]*'.'
+            get_servers(@bs.subnet, vpc, hostname)
+          end.flatten
         else
-          show_usage
-          exit 1
+          get_servers(@bs.subnet, vpc, @bs.filter)
         end
-        # Find running servers
-        filters.each do |filter|
-          puts "Locating server with filter: #{filter}"
-          servers += get_servers([name_args.first,filter])
-        end
-        servers.flatten
-        servers.each do |x|
-          if x.lifecycle == 'spot'
-            spot_servers << x
-          else
-            permanent_servers << x
-          end
+      end
+
+      def restore
+        ui.msg("\nRestoring data from #{config[:from]}\n")
+
+        associations = SubConfig.new({})
+        servers = find_servers
+        @bs[:batch_size] = servers.size
+        spot_servers = servers.select {|x| x.lifecycle == 'spot'}
+        permanent_servers = servers.reject do |k,_|
+          spot_servers.include? k
         end
 
-        puts "\nTotal Server:  #{servers.length}\nPermanent Servers: #{permanent_servers.length}\nSpot Servers: #{spot_servers.length}"
-        exit 1 if config[:quit_at].to_i == 1
+        puts "\nTotal servers: #{servers.size}\nPermanent Servers: "\
+             "#{permanent_servers.size}\nSpot Servers: #{spot_servers.size}"
+        exit 1 if @bs.quit_at.to_i == 1
 
         #
         # Get Snapshots and Volumes
         #
-        Parallel.map(servers, :in_threads => config[:batch_size].to_i) do |server|
+        Parallel.map(servers, :in_threads =>
+                              @bs.batch_size.to_i) do |server|
           begin
-            # Get attached volume.
-            puts "\nGetting Snapshot and Volume for #{server.tags['fqdn']}"
+            # Get attached volumes
+            puts "\nGetting Snapshots and Volumes for #{server.tags['fqdn']}"
             associations[server.tags['fqdn']] = {}
             associations[server.tags['fqdn']]['server'] = server
-            associations[server.tags['fqdn']]['old_volume'] = server.volumes.select {|x| x.device == '/dev/sdf'}.first
-            associations[server.tags['fqdn']]['snapshot'] = connection.snapshots.all('tag-value' => server.tags['fqdn'].gsub(config[:subnet], config[:from])).sort_by {|x| x.tags['created']}.last
+
+            # Get the snapshots for the 'from' subnet
+            snapshots = connection.snapshots.all(
+              'tag-value' => server.tags['fqdn'].gsub(@bs.subnet,
+                                                      @bs.from)).
+                        sort_by {|x| x.tags['created']}
+            # We now have all of the snapshots for this fqdn ever made,
+            # need to reject the ones that are part of an earlier
+            # snapshot
+            latest_epoch = snapshots.last.tags['created']
+            associations[server.tags['fqdn']]['snapshots'] =
+              snapshots.select {|ss| ss.tags['created'] == latest_epoch}
           rescue SystemExit, Exception=>e
-            ui.warn("#{e.message}\nCaught exception while trying to find snapshot/volume for server: #{server.tags['Name']}")
+            ui.warn("#{e.message}\nCaught exception while trying to find "\
+                    "snapshot/volume for server: #{server.tags['Name']}")
           end
         end
-        exit 1 if config[:quit_at].to_i == 2
+        exit 1 if @bs.quit_at.to_i == 2
 
         #
         # Create volumes from snapshots
         #
-        Parallel.map(associations.keys(), :in_threads => config[:batch_size].to_i) do |fqdn|
+        Parallel.map(associations.keys(), :in_threads =>
+                                          @bs.batch_size.to_i) do |fqdn|
+          associations[fqdn]['new_volumes'] = {}
           begin
-            puts "\nCreating new volume from snapshot : #{associations[fqdn]['snapshot'].tags['Name']}"
-            associations[fqdn]['new_volume'] = create_volume_from_snapshot(associations[fqdn]['snapshot'])
+            associations[fqdn]['snapshots'].each do |ss|
+              associations[fqdn]['new_volumes'][ss.tags['device']] =
+                create_volume_from_snapshot(ss)
+            end
           rescue SystemExit, Exception=>e
-            ui.warn("\n#{e.message}\nCaught exception while trying to create volume from snapshot for :#{fqdn}")
+            ui.warn("\n#{e.message}\nCaught exception while trying"\
+                    " to create volume from snapshot for :#{fqdn}")
           end
         end
-        exit 1 if config[:quit_at].to_i == 3
+        exit 1 if @bs.quit_at.to_i == 3
 
         #
         # Wait for New Volumes to be ready
         #
-        Parallel.map(associations.keys(), :in_threads => config[:batch_size].to_i) do |fqdn|
+        all_new_volumes = associations.collect do |_,info|
+          info.new_volumes.hash.values
+        end.flatten
+        Parallel.map(all_new_volumes, :in_threads =>
+                                      all_new_volumes.size) do |volume|
           begin
-            print "\nWaiting for new volume #{associations[fqdn]['new_volume'].id} to be ready..."
-            associations[fqdn]['new_volume'].wait_for {print '.'; ready?}
+            print "\nWaiting for new volume #{volume.id} to be ready..."
+            volume.wait_for {print '.'; ready?}
           rescue SystemExit, Exception=>e
-            ui.warn("\n#{e.message}\nCaught exception while trying to create volume from snapshot for :#{fqdn}")
+            ui.warn("\n#{e.message}\nCaught exception while trying"\
+                    " to create volume from snapshot"\
+                    " for: #{volume.id}")
           end
         end
-        exit 1 if config[:quit_at].to_i == 4
+        exit 1 if @bs.quit_at.to_i == 4
 
         #
         # Create tags for new volumes
         #
-        Parallel.map(associations.keys(), :in_threads => config[:batch_size].to_i) do |fqdn|
+        Parallel.map(associations.keys, :in_threads =>
+                                        @bs.batch_size.to_i) do |fqdn|
           begin
-            puts "\nCreating tags for new volume : #{fqdn}"
-            tags = {
-              'Name' => fqdn,
-              'bs-owner' => fqdn,
-              'vol_from_snapshot' => config[:from],
-              'subnet' => config[:subnet]
-            }
-            tags['device'] = associations[fqdn]['old_volume'].nil? ? "/dev/sdf" : associations[fqdn]['old_volume'].tags['device']
-            create_tags(associations[fqdn]['new_volume'].id, tags)
+            associations[fqdn]['new_volumes'].each do |device,volume|
+              ui.msg("\nCreating tags for new volume : #{volume.id}")
+              tags = {
+                'Name'              => fqdn,
+                'bs-owner'          => fqdn,
+                'vol_from_snapshot' => @bs.from,
+                'subnet'            => @bs.subnet,
+                'vpc'               => @bs.vpc,
+                'device'            => device
+              }
+              create_tags(volume.id, tags)
+            end
           rescue SystemExit, Exception=>e
-            ui.warn("\n#{e.message}\nCaught exception while trying to create tags for new volume #{fqdn}")
+            ui.warn("\n#{e.message}\nCaught exception while trying"\
+                    " to create tags for new volume #{fqdn}")
           end
         end
         puts "\nSuccessfully created tags for all new volumes."
-        exit 1 if config[:quit_at].to_i == 5
+        exit 1 if @bs.quit_at.to_i == 5
+
 
         #
         # Rename old volumes
         #
-        Parallel.map(associations.keys(), :in_threads => config[:batch_size].to_i) do |fqdn|
-          unless associations[fqdn]['old_volume'].nil?
-            begin
-              puts "\nRenaming old volume for : #{fqdn}"
+        Parallel.map(associations.keys(), :in_threads =>
+                                          @bs.batch_size.to_i) do |fqdn|
+          begin
+            associations[fqdn]['snapshots'].each do |ss|
+              vol_id = ss.tags['volume-id']
+              ui.msg("\nRenaming old volume #{vol_id}")
+              vol = connection.volumes.get(vol_id)
+              # Append -old to the volume which was restored
               tags = {
-                'Name' => associations[fqdn]['old_volume'].tags['Name'] + '-old'
+                'Name' => vol.tags['Name'] + '-old'
               }
-              create_tags(associations[fqdn]['old_volume'].id, tags)
-            rescue SystemExit, Exception=>e
-              ui.warn("\n#{e.message}\nCaught exception while trying to Rename volume : #{fqdn}")
+              create_tags(vol_id, tags)
             end
+          rescue SystemExit, Exception=>e
+            ui.warn("\n#{e.message}\nCaught exception while trying "\
+                    "to rename volume : #{fqdn}")
           end
         end
         puts "\nSuccessfully renamed all old volumes."
-        exit 1 if config[:quit_at].to_i == 6
+        exit 1 if @bs.quit_at.to_i == 6
 
-        # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<= Everything changes here =>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
+        # <<<<<<<<<<<<= Everything changes here =>>>>>>>>>>>>
         #
         # Shutdown all the PERMANENT INSTANCES
         #
-        Parallel.map(permanent_servers, :in_threads => config[:batch_size].to_i) do |server|
+        Parallel.map(permanent_servers, :in_threads =>
+                                        @bs.batch_size.to_i) do |server|
           begin
             print "\nShutting down instance : #{server.tags['fqdn']}."
             server.stop
           rescue SystemExit, Exception=>e
-            ui.warn("\n#{e.message}\nCaught exception while trying to Shutdown server: #{server.tags['fqdn']}")
+            ui.warn("\n#{e.message}\nCaught exception while trying"\
+                    " to Shutdown server: #{server.tags['fqdn']}")
           end
         end
-        exit 1 if config[:quit_at].to_i == 7
+        exit 1 if @bs.quit_at.to_i == 7
+
+        ## FUTURE replace all of this with cluster create so we can
+        ## Bring the entire cluster down/up
 
         #
         # Create NEW INSTANCES to replace SPOT INSTANCES
         #
         if spot_servers.length > 0
           # Terminate all the spot instances
-          Parallel.map(spot_servers, :in_threads => config[:batch_size].to_i) do |server|
+          Parallel.map(spot_servers, :in_threads =>
+                                     @bs.batch_size.to_i) do |server|
             begin
               print "\nTerminating old spot instance : #{server.tags['fqdn']}."
               server.destroy
             rescue SystemExit, Exception=>e
-              ui.warn("\n#{e.message}\nCaught exception while trying to Terminate old spot instance: #{server.tags['fqdn']}")
+              ui.warn("\n#{e.message}\nCaught exception while trying"\
+                      " to Terminate old spot instance:"\
+                      " #{server.tags['fqdn']}")
             end
           end
+          binding.pry
+          ## GOOD/OK/REVIEWED until here
+          ## REVIEW sleeping? See if there is a wait_for you can do
           sleep 20
-          if config[:match]
-            config[:ami] = spot_servers.first.image_id
+          if @bs[:match]
+            ## REVIEW using just the first spot server to get AMI
+            @bs[:ami] = spot_servers.first.image_id
           else
-            config[:latest] = true
+            @bs[:latest] = true
           end
 
           # Bring up the servers
@@ -256,7 +342,8 @@ To restore the dev subnet with production and then delete the old detatched dev 
               puts "\nAll Spot Servers are of the same type.\n\n"
               name_args.pop if name_args.size == 2
               name_args << spot_servers.first.tags['hosttype']
-              config[:number_of_nodes] = spot_servers.length
+              @bs[:number_of_nodes] = spot_servers.length
+              ## REVIEW call to super here for spinning up instances.
               super
             else
               spot_servers.each do |server|
@@ -269,30 +356,36 @@ To restore the dev subnet with production and then delete the old detatched dev 
             ui.error("#{e.message}\nError bringing up servers.")
           end
         end
-        exit 1 if config[:quit_at].to_i == 8
+        exit 1 if @bs.quit_at.to_i == 8
 
         #
         # PERMANENT SERVERS >> Detach old volumes
         #
-        Parallel.map(permanent_servers, :in_threads => config[:batch_size].to_i) do |server|
+        Parallel.map(permanent_servers, :in_threads =>
+                                        @bs.batch_size.to_i) do |server|
           begin
             unless associations[server.tags['fqdn']]['old_volume'].nil?
               print "\nWaiting for #{server.tags['fqdn']} to stop..."
               server.wait_for(timeout=1200) {print '.';state == 'stopped'}
               print "\nDetaching old volume for : #{server.tags['fqdn']}.."
-              connection.detach_volume(associations[server.tags['fqdn']]['old_volume'].id)
-              associations[server.tags['fqdn']]['old_volume'].wait_for {print '.';state == 'available'}
+              connection.detach_volume(
+                associations[server.tags['fqdn']]['old_volume'].id
+              )
+              associations[server.tags['fqdn']]['old_volume'].wait_for do
+                print '.'
+                state == 'available'
+              end
             end
           rescue SystemExit, Exception=>e
             ui.warn("\n#{e.message}\nCaught exception while trying to detach old volume #{associations[server.tags['fqdn']]}")
           end
         end
-        exit 1 if config[:quit_at].to_i == 9
+        exit 1 if @bs.quit_at.to_i == 9
 
         #
         # PERMANENT SERVERS >> Attach new volumes
         #
-        Parallel.map(permanent_servers, :in_threads => config[:batch_size].to_i) do |server|
+        Parallel.map(permanent_servers, :in_threads => @bs.batch_size.to_i) do |server|
           begin
             puts "\nAttaching new volume #{associations[server.tags['fqdn']]['new_volume'].tags['Name']} to #{server.tags['fqdn']}"
             attach_volume(associations[server.tags['fqdn']]['server'], associations[server.tags['fqdn']]['new_volume'].id, '/dev/sdf')
@@ -300,13 +393,13 @@ To restore the dev subnet with production and then delete the old detatched dev 
             ui.warn("\n#{e.message}\nCaught exception while trying to attach new volume #{associations[server.tags['fqdn']]['new_volume'].tags['Name']}")
           end
         end
-        exit 1 if config[:quit_at].to_i == 10
+        exit 1 if @bs.quit_at.to_i == 10
 
         #
         # PERMANENT SERVERS >> Start the servers
         #
 
-        Parallel.map(permanent_servers, :in_threads => config[:batch_size].to_i) do |server|
+        Parallel.map(permanent_servers, :in_threads => @bs.batch_size.to_i) do |server|
           begin
             print "\nStarting instance : #{server.tags['fqdn']}. Waiting..."
             server.start
@@ -315,14 +408,14 @@ To restore the dev subnet with production and then delete the old detatched dev 
             ui.warn("\n#{e.message}\nCaught exception while trying to start server: #{server.tags['fqdn']}")
           end
         end
-        exit 1 if config[:quit_at].to_i == 11
+        exit 1 if @bs.quit_at.to_i == 11
 
         #
         # PERMANENT SERVERS >> Delete old volumes
         #
         if config[:delete_old_volumes]
           ui.confirm("Are you sure you want to delete #{old_volumes.length} volumes")
-          Parallel.map(associations.keys(), :in_threads => config[:batch_size].to_i) do |fqdn|
+          Parallel.map(associations.keys(), :in_threads => @bs.batch_size.to_i) do |fqdn|
             begin
               puts "\nDeleting old volume: #{associations[fqdn]['old_volume'].tags['Name']}"
               associations[fqdn]['old_volume'].destroy

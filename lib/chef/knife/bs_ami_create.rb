@@ -97,7 +97,7 @@ To create a master ami on ame1.ops:
         exit 1 if @bs[:only_config]
 
         #
-        # Create instance. By default a spot instance is created. 
+        # Create instance. By default a spot instance is created.
         # It can be overridden via command line parameter.
         ## FUTURE or by deployment config
 
@@ -109,7 +109,8 @@ To create a master ami on ame1.ops:
             print "#{amix.ami_type} : Creating an on-demand server. Waiting"
             server.wait_for { print '.'; ready? }
           rescue Exception=>e
-            ui.error("#{e.message}\n#{amix.ami_type} : Exception while creating server. Destroying.")
+            ui.error("#{e.message}\n#{amix.ami_type} : Exception "\
+                     "while creating server. Destroying.")
             destroy_server(server)
             exit 1
           end
@@ -130,26 +131,30 @@ To create a master ami on ame1.ops:
         #
         #Create tags
         #
-        puts "\n#{amix.ami_type}: #{ui.color('Creating Server Tags', :magenta)}"
+        puts "\n#{amix.ami_type}: "\
+             "#{ui.color('Creating Server Tags', :magenta)}"
         create_server_tags(server, @bs[:chef_node_name])
 
         #
         # Bootstrap them with role specified in YAML
         #
         print "\n#{amix.ami_type}: Waiting for SSHD.."
-        print('.') until tcp_test_ssh(server.private_ip_address, config[:ssh_port]) {
-              sleep @initial_sleep_delay ||= (vpc_mode? ? 40 : 10)
-              puts("#{amix.ami_type} ready")
+        print('.') until tcp_test_ssh(server.private_ip_address,
+                                      config[:ssh_port]) {
+          sleep @initial_sleep_delay ||= (vpc_mode? ? 40 : 10)
+          puts("#{amix.ami_type} ready")
         }
         $stdout.flush
         tries = 5
         begin
           bootstrap_for_linux_node(server, server.private_ip_address).run
         rescue Exception=>e
-          ui.error("#{e.message}\n#{amix.ami_type}: Exception while bootstrapping server. Retrying.")
+          ui.error("#{e.message}\n#{amix.ami_type}: Exception "\
+                   "while bootstrapping server. Retrying.")
           if (tries -= 1) <= 0
-            print "\n\n#{amix.ami_type}: Max tries reached. Deleting server and exiting. AMI Creation failed.\n\n"
-            #destroy_server(server)
+            print "\n\n#{amix.ami_type}: Max tries reached. "\
+                  "Deleting server and exiting. AMI Creation failed.\n\n"
+            # destroy_server(server)
             exit 1
           else
             retry
@@ -162,7 +167,9 @@ To create a master ami on ame1.ops:
 
         # Create AMI
         print "#{amix.ami_type}:  #{ui.color("Creating AMI", :bold)}"
-        ami = connection.create_image(server.id, config[:ami_name], no_reboot= true, server.block_device_mapping)
+        ami = connection.create_image(server.id, config[:ami_name],
+                                      no_reboot = true,
+                                      server.block_device_mapping)
         id = ami.body['imageId']
         puts "\n#{amix.ami_type}: Waiting for #{id} to be available"
         begin
@@ -252,7 +259,7 @@ To create a master ami on ame1.ops:
           end
         end
         # Append ami-type to the end
-        name += '-' + @bs.mixins.ami.data.ami_type
+        # name += '-' + @bs.mixins.ami.data.ami_type
         print_table({:AMI_NAME=>name},'AMI')
         @bs.ami_name = name
       end

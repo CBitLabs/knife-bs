@@ -60,21 +60,15 @@ class Chef
         @hash.each &block
       end
 
-      def keys
-        @hash.keys
-      end
+      def keys ; @hash.keys end
 
-      def empty?
-        @hash.empty?
-      end
+      def empty? ; @hash.empty? end
 
       def each_pair &block
         @hash.each_pair &block
       end
 
-      def internal_get(k)
-        @hash[k]
-      end
+      def internal_get(k) ; @hash[k] end
 
       def internal_set(k, v)
         key, val = make_attr(k, v)

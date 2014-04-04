@@ -32,6 +32,7 @@ class Chef
       attr_accessor :yaml
       attr_accessor :mixins
       attr_accessor :ui
+
       extend ::Mixlib::Config
       include Hashit
 
@@ -77,11 +78,11 @@ class Chef
       def load_yaml
         begin
           ui.msg("Loading config from yaml : #{Chef::Config[:knife][:yaml]}")
-          yaml = YAML.load_file(Chef::Config[:knife][:yaml])
+          yml = YAML.load_file(Chef::Config[:knife][:yaml])
           schema_file = File.expand_path(File.join(File.dirname(__FILE__), '../../bs-schema.yaml'))
           @mixin_validator = MixinValidator.new(YAML.load_file(schema_file))
-          @mixin_validator.validate(yaml)
-          @yaml = SubConfig.new(yaml)
+          @mixin_validator.validate(yml)
+          @yaml = SubConfig.new(yml)
         rescue Exception=>e
           ui.error("Failed to validate:\n#{e.message}")
           raise YamlError.new(e)
@@ -167,13 +168,13 @@ class Chef
       def get_stack(stack=nil)
         stack ||= @stack
         return nil unless stack
-        @yaml.stacks[stack] if @yaml.stacks.respond_to? stack
+        @yaml.stacks[stack]
       end
 
       def get_profile(profile=nil)
         profile  ||= @profile
         return nil unless profile
-        @yaml.profiles[profile]# if @yaml.profiles.respond_to? profile
+        @yaml.profiles[profile]
       end
 
       def get_all
@@ -256,7 +257,6 @@ class Chef
           d = self.send(method, mixin)
           next unless d
 
-          # binding.pry if mixin == 'ami'
           case d
           when String, Numeric
             mixin_data = d

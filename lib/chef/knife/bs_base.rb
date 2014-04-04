@@ -9,6 +9,7 @@ require 'time'
 require 'kwalify'
 require 'ruby-progressbar'
 require 'chef/bs_utils/bs_logging'
+require 'chef/knife/bs_util'
 require 'knife-bs/monkey_patches/ui'
 require 'awesome_print'
 require 'knife-bs/errors'
@@ -61,9 +62,10 @@ class Chef
 
         option :bslogging,
           :short => '-b',
-          :long => '--no_bslog',
+          :long => '--bslog',
           :boolean => true,
-          :description => 'Disables logging knife run to disk',
+          :default => true,
+          :description => 'Toggles logging knife run to disk',
           :proc => Proc.new { BsUtils::BsLogging.disable }
 
         option :user_mixins,
@@ -95,11 +97,13 @@ class Chef
       end
 
       def associate_elastic_ip(server, elastic_ip=nil)
-        # Associate an EIP with a given server. 
+        # Associate an EIP with a given server.
         # If #{elastic_ip} is not provided, get a new EIP
         elastic_ip ||= get_elastic_ip
-        ui.color("Associating Elastic IP #{eip.public_ip} with Server: #{server.id}...\n\n", :magenta)
-        elastic_ip.server=(server)
+        ui.msg(ui.color("Associating Elastic IP #{eip.public_ip} "\
+                        "with Server: #{server.id}...\n\n",
+                        :magenta))
+        elastic_ip.server = (server)
       end
 
       ## REVIEW - move to mixin?
@@ -135,7 +139,7 @@ class Chef
         @bs.load_mixins(mixins)
         # Can load up any additional ones with
         # @bs.load_mixin(name)
-        org = @bs.yaml.organizations.first
+        org = @bs.yaml.organizations.hash.first
         @bs[:organization] = org[0]
         @bs[:domain] = org[1].domain
 
@@ -285,7 +289,10 @@ class Chef
 
       def create_volume_from_snapshot(snapshot)
         puts "\nCreating volume from snapshot : #{snapshot.description}"
-        volume = connection.volumes.create( :availability_zone => @bs.mixins.az.data, :size => snapshot.volume_size,:snapshot_id => snapshot.id)
+        volume = connection.volumes.create(
+          :availability_zone => @bs.mixins.az.data,
+          :size              => snapshot.volume_size,
+          :snapshot_id       => snapshot.id)
         return volume
       end
 
@@ -592,6 +599,7 @@ class Chef
       end
 
       def get_volume_id(fqdn)
+        ## REVIEW usage of 'first' below
         volume = get_volumes(fqdn)
         return volume.first.id if volume
       end
@@ -704,7 +712,7 @@ class Chef
         # Returns a Fog::Compute::AWS::Address Object
         domain = @bs[:novpc] ? 'standard' : 'vpc'
         eip = connection.allocate_address(domain=domain)
-        sleep 3
+        sleep 3 ## REVIEW sleep duration? make it wait_for? {} ... ?
         address = connection.addresses.get(eip.body['publicIp'])
         puts "\nObtained new Elastic IP: #{address.public_ip}\n"
         return address
@@ -860,32 +868,9 @@ class Chef
         token
       end
 
-      ## TODO move this into bs_config
-      def volumes_part_of_raid?(volumes)
-        volumes.each do |v|
-          return false unless v.tags.has_key?('raid')
-        end
-        return true
-      end
-
       def msg_pair(label, value, color=:cyan)
         # Intentionally left blank. We don't want superclass to print
         # messages, because we have our own way of doing that.
-      end
-
-      ## TODO this should instead print the merged data from all levels
-      def print_yaml
-        puts "\n"
-        #print_nested_hash(@yaml['vpc']["#{config[:vpc]}"])
-        print_table( @yaml['instance']["#{config[:hosttype]}"], 'INSTANCE INFO FROM YAML')
-        print_table( @yaml['region']["#{config[:region]}"], 'REGION INFO FROM YAML')
-      end
-
-      def print_mixin_data
-        puts ""
-        @bs.mixins.each do |m|
-          print_table(m.data.hash)
-        end
       end
 
       def print_table(hash, title = nil)

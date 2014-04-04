@@ -1,5 +1,16 @@
 # CHANGELOG for knife-bs
 
+## 7.2.0:
+
+* [Pasha] [FEATURE] Updated snapshot and restore to optionally use
+  stacks. Refactored per volume definition changes.
+
+    - knife bs stack create
+        * Ability to spin up entire stacks as defined in the
+          YAML. Allows you to specify arguments to pass for each profile
+          invoked via bs server create. Runs in parallel (future, make
+          it an option)
+
 ## 7.1.8:
 
 * [Pasha] [FIX] Reorganized init scripts into one script with functions

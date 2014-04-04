@@ -12,19 +12,21 @@ class Chef
       banner "
 ############################################################################
 ----------------------------------------------------------------------------
-knife bs snapshot VPC.SUBNET (HOSTNAME) (options)
+knife bs snapshot VPC.SUBNET (HOSTNAME|STACK) (options)
 ----------------------------------------------------------------------------
 
 Snapshot the attached EBS volumes of a list of servers.
-You can snapshot an entire cluster(master+slaves) or just a specific server.
+You can snapshot an entire stack (i.e. hadoop cluster) or just a specific
+server.
+
 Usage:
 To snapshot the entire dev cluster:
-    knife bs snapshot ame1.dev
+    knife bs snapshot ame1.dev cluster --stack
 To snapshot just a single server, say ms101.dev
-    knife bs snapshot ame1.dev  ms101
-To snapshot servers based on a given name regex
-    knife bs snapshot ame1.dev  cm*
-    knife bs snapshot ame1.dev  rs*
+    knife bs snapshot ame1.dev ms101
+To snapshot servers based on a given name wildcard
+    knife bs snapshot ame1.dev cm*
+    knife bs snapshot ame1.dev rs*
 ############################################################################
 "
       option :only_config,
@@ -36,10 +38,13 @@ To snapshot servers based on a given name regex
              :long => '--progress',
              :description => 'Print progress of the snapshot'
 
+      option :stack_interpret,
+             :long => '--stack',
+             :boolean => true,
+             :description => 'Interpret second arg as stack, not hostname'
+
 
       def run
-        ## TODO rewrite this:
-        ## Use volume mixin, stack information, improve 'regex'
         #
         # Put Fog into mock mode if --dry_run
         #
@@ -49,60 +54,94 @@ To snapshot servers based on a given name regex
         end
         $stdout.sync = true
 
-        unless name_args.size > 0
+        build_config(name_args)
+        validate!
+        exit 1 if config[:only_config]
+
+        snapshot
+      end
+
+      def build_config(name_args)
+        unless name_args.size > 1
           show_usage
           exit 1
         end
+        name_args.reverse!
+        config[:vpc], config[:subnet] = name_args.pop.split('.')
+        config[:stack_interpret] ?
+          config[:stack] = name_args.pop :
+          config[:filter] = name_args.pop
 
         config[:verbosity] = 2 if config[:only_config]
         config[:verbosity] = -1 if config[:progress]
-        build_config(name_args)
-        exit 1 if config[:only_config]
 
-        if config[:progress]
-          show_progress(name_args)
-        end
+        base_config
+        show_progress(name_args) if @bs[:progress]
+      end
 
+      def snapshot
         volumes = []
         servers = []
         snapshots = []
 
-        if name_args.size == 1
-          #
-          # Snapshot the entire cluster
-          #
-          # Find master volume
-          fqdn = "ms101" + "." + "#{config[:subnet]}" + "." + "#{config[:vpc]}" + "." + "#{config[:domain]}"
-          master_volume = connection.volumes.all('tag-value'=>fqdn).first
-          puts "\nFound master volume with id: #{master_volume.id}"
-          volumes << master_volume
+        volume_get = proc do |fqdn|
+          acc = []
+          matched_vols = connection.volumes.all('tag-value'=>fqdn)
+          ui.warn("Multiple volumes found") if matched_vols.size > 1
+          vol = matched_vols.first
+          ui.msg("Found volume with id: #{vol.id} "\
+                 "#{'in '+@bs.stack if @bs[:stack]}")
+          acc << vol
+        end
 
-          # Find slave servers
-          puts "Searching slaves..."
-          name_args << "rs*"
+        if @bs[:stack_interpret]
+          #
+          # Snapshot the entire stack
+          #
 
-          servers = get_servers(name_args)
-          puts "Found slaves : #{servers.length}"
+          stack_def = @bs.get_stack
+          stack_def.profiles.each do |p,info|
+            profile = @bs.get_profile(p)
+            pos = profile.hostname =~ /\%/
+            hostname = pos ? profile.hostname[0...pos] + '*' : profile.hostname
+            fqdn = [hostname, @bs.subnet,
+                    @bs.vpc,  @bs.domain]*'.'
+            volumes.concat(volume_get.call(fqdn))
+
+            # Append to server list
+            servers.concat(get_servers(@bs.subnet, @bs.vpc, hostname))
+          end
         else
           #
-          # Snapshot just the given server(s)
+          # Snapshot host(s) using filter
           #
-          servers = get_servers(name_args)
+
+          fqdn = [@bs.filter, @bs.subnet,
+                  @bs.vpc,    @bs.domain]*'.'
+          volumes.concat(volume_get.call(fqdn))
+          servers.concat(get_servers(@bs.subnet, @bs.vpc, @bs.filter))
         end
 
         #
         # Get volumes for servers
         #
-        Parallel.map(servers, :in_threads => config[:batch_size].to_i) do |server|
+        Parallel.map(servers, :in_threads =>
+                              config[:batch_size].to_i) do |server|
           begin
             puts "\nSearching volume id for server : #{server.tags['fqdn']}"
-            vols = server.volumes.select {|x| x.delete_on_termination == false }
-            vols.each {|v| volumes << v}
+            volumes.concat(
+              server.volumes.select do |x|
+                # Ignore temp and root drives
+                x.delete_on_termination == false
+              end
+            )
           rescue SystemExit, Exception=>e
-            ui.warn("\n#{e.message}\nCaught exception while trying to find volume id for server: #{server.tags['fqdn']}")
+            ui.warn("\n#{e.message}\nCaught exception while trying to find "\
+                    "volume id for server: #{server.tags['fqdn']}")
           end
         end
         volumes.flatten
+        volumes.uniq! {|v| v.id}
         puts "Total number of volume ids : #{volumes.length}"
 
         #
@@ -110,44 +149,57 @@ To snapshot servers based on a given name regex
         #
         epoch_time = Time.now.to_i
         gm_time = Time.now.gmtime.to_s
-        Parallel.map(volumes, :in_threads => config[:batch_size].to_i) do |volume|
+        Parallel.map(volumes, :in_threads =>
+                              config[:batch_size].to_i) do |volume|
           begin
             puts "\nCreating snapshot for : #{volume.tags['Name']}"
-            description = 'knife-bs' + '_' + volume.tags['Name'] + '_' + gm_time
+            description = ['knife-bs',
+                           volume.tags['Name'],
+                           gm_time] * '_'
             snapshot_id = volume.snapshot(description).body['snapshotId']
             sleep(10)
             tags = {}
             tags['Name'] = volume.tags['Name']
             tags['created'] = epoch_time
             tags['subnet'] = config[:subnet]
-            tags['cluster_size'] = servers.size
+            tags['device'] = volume.tags['device']
+            tags['volume-id'] = volume.id
+            ## TODO  \/\/\/\/\/ implement
+            # tags['cluster_size'] = servers.size
             tags['version'] = get_version()
             if volume.tags.has_key?('raid')
               tags['raid'] = 'yes'
-              tags['raid_version'] = volume.tags['raid_version'] if volume.tags.has_key?('raid_version')
+              tags['raid_version'] =
+                volume.tags['raid_version'] if
+                volume.tags.has_key?('raid_version')
             end
             puts "\nCreating tags for snapshot : #{snapshot_id}"
             connection.create_tags(snapshot_id, tags)
             #snapshots << connection.snapshots.get(snapshot_id)
           rescue SystemExit, Exception=>e
-            ui.warn("\n#{e.message}\nCaught exception while trying to snapshot: #{volume.tags['Name']}")
+            ui.warn("\n#{e.message}\nCaught exception while trying"\
+                    " to snapshot: #{volume.tags['Name']}")
           end
         end
 
-        puts "\nThe snapshot process has been started. It may take many minutes to several hours."
-        puts "\nPlease check the AWS console or use the following command.."
-        print "#{ui.color("\n\n\tknife bs snapshot progress VPC.SUBNET (HOSTNAME) [-p | --progress]\n\n", :magenta)}"
+        ui.msg("\nThe snapshot process has been started. "\
+               "It may take many minutes to several hours."\
+               "\nPlease check the AWS console or use the following command..")
+        print ui.color("\n\n\tknife bs snapshot VPC.SUBNET "\
+                       "(HOSTNAME) [-p | --progress]\n\n",
+                       :magenta)
 
         print_messages
-        print_time_taken
+        # print_time_taken
         print "#{ui.color("\nDone!\n\n", :bold)}"
       end
 
-      def show_progress(name_args)
-        print "#{ui.color("\n\nPress Ctrl+C to exit..\n\n", :bold)}"
-        bar = progressbar("#{config[:subnet]} snapshot progress")
+      def show_progress
+        print ui.color("\n\nPress Ctrl+C to exit..\n\n", :bold)
+        bar = progressbar("#{@bs.subnet} snapshot progress")
+        ## GOOD/OK so far
         # Calculate the filter for search
-        suffix = ".#{config[:subnet]}.#{config[:vpc]}.#{config[:domain]}"
+        suffix = ".#{@bs.subnet}.#{@bs.vpc}.#{@bs.domain}"
         if name_args.size == 1
           filter = "*" + suffix
         else
@@ -187,6 +239,10 @@ To snapshot servers based on a given name regex
         new_values = []
         values.each {|x| new_values << x.to_i }
         return new_values.quadratic_mean.to_i
+      end
+
+      def validate!
+        ## TODO something
       end
 
       def get_version()
