@@ -197,6 +197,14 @@ specification.
 Use this command to view what instances are running in a subnet or
 environment. See help text for usage
 
+## [knife bs stack create](lib/chef/knife/bs_stack_create.rb)
+
+Used to bring up multiple nodes of different types. Uses stack
+definitions inside the YAML to pick up `stack` options. Brings up nodes
+in parallel. Allows per-profile overrides using `--each`.
+
+See banner in ruby code or help message for more details
+
 ## [knife bs ami create](lib/chef/knife/bs_ami_create.rb)
 
 ** Work in Progress **
