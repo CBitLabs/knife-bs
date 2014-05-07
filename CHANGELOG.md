@@ -1,5 +1,63 @@
 # CHANGELOG for knife-bs
 
+## 7.5.2:
+
+* [Pasha] [Fix] Was not passing hash to the bootstrap config; Erroring
+  out incorrectly when no volumes are defined
+
+## 7.5.1:
+
+* [Pasha] [Fix] flavor CLI override was not working as expected; fixed
+
+## 7.5.0:
+
+* [Pasha] [Feature/Fix] Mainstream BitSight release
+
+    - Adding ability to pass bootstrap attributes via
+        server create.
+    - Removed debugging calls.
+    - Fixed issue with configuration printing
+
+## 7.4.4:
+
+* [Pasha] [Fix] Small typo in mixin config
+
+## 7.4.3:
+
+* [Pasha] [Fix] AMI create was using the wrong :chef_node_name variable,
+  causing errors when trying to clean up the node on the chef server
+
+## 7.4.2:
+
+* [Pasha] [Fix] -Y/--yaml override wasn't actually doing anything.. again
+
+## 7.4.0:
+
+* [Pasha] [Feature] Ability to store and load the YAML configuration
+  to/from a data bag
+
+    - bs_data_bag_from_yaml.rb included from
+      https://gist.github.com/mpasternacki/1157440
+
+## 7.3.4:
+
+* [Pasha] [Feature] YAML overrides
+
+## 7.3.3:
+
+* [Pasha] [Fix] Updates to bs server list, ami create, ebs delete
+
+    - server list
+      * Actually use the filter passed to it as an arg
+    - ami create
+      * Updates to mixin (cleaning) and typo fixes
+    - ebs delete
+      * Added :no_instance_check parameter to command line args
+
+## 7.3.0:
+
+* [Pasha] [FEATURE] Changed YAML structure to remove mixin tags
+
 ## 7.2.0:
 
 * [Pasha] [FEATURE] Updated snapshot and restore to optionally use
@@ -14,14 +72,7 @@
 ## 7.1.8:
 
 * [Pasha] [FIX] Reorganized init scripts into one script with functions
-separated into separate source-able files for modularity
-
-    - Various bug fixes with init scripts
-    - Fixed hash merging for mixin data overrides
-    - Removed some resolved comments
-    - Attaching EBS volumes using `knife bs ebs --attach ...` functioning
-    - Improved tagging by removing key cleaning in Hashit
-    - Implemented pre and post chef hooks
+  separated into separate source-able files for modularity
 
 ## 7.1.7:
 
@@ -219,7 +270,7 @@ separated into separate source-able files for modularity
 
 ## 6.13.3:
 
-* [Kevin] [FIX] Fixed bug with swapon
+* [Kevin] Fixed bug with swapon
 
 ## 6.13.2:
 
@@ -232,10 +283,10 @@ separated into separate source-able files for modularity
 
 ## 6.13.0:
 
-* [Isaac] [FIX] Updates `BsBase` to check for `vars` under VPC.
+* [Isaac] Updates `BsBase` to check for `vars` under VPC.
 
-* [Isaac] [CLEANUP] Cleans up `BsServerCreate` by extracting monolithic
-  run into several helper methods.
+* [Isaac] Cleans up `BsServerCreate` by extracting monolithic run into
+  several helper methods.
 
 ## 6.12.0:
 
@@ -425,7 +476,7 @@ separated into separate source-able files for modularity
 
 ## 6.6.0:
 
-* [FIX] Fixes
+* [FIX] Fixes [OP-147](https://bitsight.atlassian.net/browse/OP-147)
 
   - Adds a new helper method `BsBase#ip_in_use?`
 
@@ -453,20 +504,23 @@ separated into separate source-able files for modularity
 ## 6.4.9
 
 * [FIX] Adds a check to determine whether or not we need to cleanup
-  existing Chef clients and nodes.
+  existing Chef clients and nodes. Relates to
+  [OP-151](https://bitsight.atlassian.net/browse/OP-151)
 
 * [FIX] Adds saving of nodes in the boostrap section of
   `bs_server_create`, otherwise setting the environment has no effect.
 
 ## 6.4.8
 
-* [FIX] Adds a condition check which determines whether or not to add
-  CloudWatch alarms to the instance being created. Spot instances do
-  not receive them, others do.
+* [FIX] Fixes [RP-1609](https://bitsight.atlassian.net/browse/RP-1609)
+
+  - Adds a condition check which determines whether or not to add
+    CloudWatch alarms to the instance being created. Spot instances do
+    not receive them, others do.
 
 ## 6.4.7
 
-* [FIX] Fixes 
+* [FIX] Fixes [RP-1449](https://bitsight.atlassian.net/browse/RP-1449)
 
   - Adds missing method `locate_config_value` to `Chef::Knife::BsBase`,
     the method is from `Chef::Knife::Ec2Base` which `bs_server_show` did

@@ -4,7 +4,7 @@ require 'knife-bs/version'
 Gem::Specification.new do |s|
   s.name             = 'knife-bs'
   s.version          = Knife::Bs::VERSION
-  s.date             = '2014-03-24'
+  s.date             = '2014-05-07'
   s.authors          = ['Parth Santpurkar', 'Kevin Amorin',
                         'Isaac Boehman', 'Pasha Sadikov']
   s.email            = 'ops@bitsighttech.com'
