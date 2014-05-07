@@ -32,46 +32,58 @@ class Chef
             require 'chef/knife/bs_mixin'
           end
 
-        option :yaml,
-          :short => '-Y YAML',
-          :long => '--yaml YAML',
-          :description => 'Path to bs-atlas.yaml config file'
+          option :yaml,
+                 :short => '-Y YAML',
+                 :long => '--yaml YAML',
+                 :description => 'Path to bs-atlas.yaml config file'
 
-        option :aws_access_key_id,
-          :short => '-A KEY',
-          :long => '--aws-access-key-id KEY',
-          :description => 'Your AWS Access Key ID',
-          :proc => Proc.new { |key| Chef::Config[:knife][:aws_access_key_id] = key }
+          option :config_data_bag,
+                 :short => '-D BAG[::ITEM]',
+                 :long => '--databag BAG[::ITEM]',
+                 :description => 'Load from databag instead of YAML',
+                 :proc => proc {|b| Chef::Config[:knife][:config_data_bag] = b}
 
-        option :aws_secret_access_key,
-          :short => '-K SECRET',
-          :long => '--aws-secret-access-key SECRET',
-          :description => 'Your AWS API Secret Access Key',
-          :proc => Proc.new { |key| Chef::Config[:knife][:aws_secret_access_key] = key }
+          option :aws_access_key_id,
+                 :short => '-A KEY',
+                 :long => '--aws-access-key-id KEY',
+                 :description => 'Your AWS Access Key ID',
+                 :proc => proc { |key| Chef::Config[:knife][:aws_access_key_id] = key }
 
-        option :region,
-          :long => '--region REGION',
-          :description => 'Your AWS region',
-          :proc => Proc.new { |key| Chef::Config[:knife][:region] = key }
+          option :aws_secret_access_key,
+                 :short => '-K SECRET',
+                 :long => '--aws-secret-access-key SECRET',
+                 :description => 'Your AWS API Secret Access Key',
+                 :proc => proc { |key| Chef::Config[:knife][:aws_secret_access_key] = key }
 
-        option :availability_zone,
-          :short => "-Z ZONE",
-          :long => "--availability-zone ZONE",
-          :description => "The Availability Zone",
-          :proc => Proc.new { |key| Chef::Config[:knife][:availability_zone] = key }
+          option :region,
+                 :long => '--region REGION',
+                 :description => 'Your AWS region',
+                 :proc => proc { |key| Chef::Config[:knife][:region] = key }
 
-        option :bslogging,
-          :short => '-b',
-          :long => '--bslog',
-          :boolean => true,
-          :default => true,
-          :description => 'Toggles logging knife run to disk',
-          :proc => Proc.new { BsUtils::BsLogging.disable }
+          option :availability_zone,
+                 :short => "-Z ZONE",
+                 :long => "--availability-zone ZONE",
+                 :description => "The Availability Zone",
+                 :proc => proc { |key| Chef::Config[:knife][:availability_zone] = key }
 
-        option :user_mixins,
-          :long => '--mixins MIXIN1,[MIXIN2..]',
-          :description => 'Mixins to be applied',
-          :proc => lambda { |o| o.split(/[\s,]+/) }
+          option :config_overrides,
+                 :short => "-o OVERRIDES",
+                 :long => "--override OVERRIDES",
+                 :description => "Any YAML configuration overrides"\
+                                 " to apply"
+
+          option :bslogging,
+                 :short => '-b',
+                 :long => '--bslog',
+                 :boolean => true,
+                 :default => true,
+                 :description => 'Toggles logging knife run to disk',
+                 :proc => proc { BsUtils::BsLogging.disable }
+
+          option :user_mixins,
+                 :long => '--mixins MIXIN1,[MIXIN2..]',
+                 :description => 'Mixins to be applied',
+                 :proc => proc { |o| o.split(/[\s,]+/) }
         end
       end
 
@@ -127,7 +139,6 @@ class Chef
       end
 
       def print_config
-        ## TODO print better config
         print_table(Chef::Config[:knife], 'KNIFE CONFIGURATION')
         print_table(@bs.mixins.var.data, 'ENVIRONMENT VARS')
       end
@@ -135,7 +146,9 @@ class Chef
       def base_config(mixins=nil, &block)
         ## ensure that VPC and SUBNET are set at this point
         @bs = BsConfig.new(config, &block)
+        config[:yaml] && Chef::Config[:knife][:yaml] = config[:yaml]
         @bs.load_yaml
+        @bs.apply_overrides
         @bs.load_mixins(mixins)
         # Can load up any additional ones with
         # @bs.load_mixin(name)
@@ -159,8 +172,12 @@ class Chef
         end
         @bs[:distro]            ||= 'chef-full'
         @bs[:hostname]          ||= profconf && profconf.hostname
-        @bs[:flavor]            = (profconf && profconf.type) && profconf.type
-        @bs[:environment]    = @bs.mixins.chef.data[:env] if @bs.mixins[:chef]
+        @bs[:flavor]            ||= (profconf && profconf.type) && profconf.type
+        ## REVIEW environment term overloading?
+        ## I dont believe that the @bs[:environment] should be set to the
+        ## Chef environment
+        @bs[:environment] = @bs.mixins.chef.data[:env] if
+          @bs.mixins[:chef] && @bs.mixins.chef.data
         Chef::Config[:knife][:ssh_user] = @bs[:ssh_user] if @bs[:ssh_user]
 
         # Adding global env variables that describe the infrastructure
@@ -206,17 +223,6 @@ class Chef
         tags.merge!(@bs.mixins.tag.data.hash)
         create_tags(server.id, tags)
         print_table(tags, 'TAGS')
-      end
-
-      ## TODO move this into bs_ami_create
-      def create_ami_tags(id)
-        tags = {
-          ## REVIEW config usage
-          :Name => config[:ami_name],
-          :creator => ENV['USER'],
-          :created => Time.now.to_i
-        }
-        create_tags(id, tags)
       end
 
       def create_tags(entity_id, tags)
@@ -623,15 +629,14 @@ class Chef
       def get_ami_id
         ui.msg("\nCalculating AMI ID")
         begin
-          ami_info = @bs.mixins.ami.data
+          @bs.mixins.ami.ami_name # Builds the prefix and suffix
           if @bs[:latest]
-            search_tag = [ami_info.prefix,
-                          ami_info.suffix] * '*'
+            search_tag = "*" + @bs.mixins.ami.suffix
             ui.msg("Searching for latest ami with tag #{search_tag}")
             images = connection.images.all({'tag-value' => search_tag})
             if images.size > 0
               ui.msg("Located #{images.size} ami's " \
-                     "with suffix #{ami_info.suffix}")
+                     "with suffix #{@bs.mixins.ami.suffix}")
             else
               puts "Could not locate any ami's with tag-value : #{search_tag}"
               exit 1
@@ -646,6 +651,9 @@ class Chef
             @bs[:aminame] = img.name
             puts "AMI NAME:#{img.name}" if img.name
 
+
+          # Matching is based implicitly on the prefix+body and the
+          # suffix is used to distinguish the AMIs
           elsif @bs[:match]
             match_profile = @bs.mixins.ami.data.match
             puts "Searching for ami matching "\
@@ -659,7 +667,8 @@ class Chef
             }
             servers = connection.servers.all(query)
 
-            ui.msg("#{match_profile} : " + servers.inspect)
+            ui.msg("#{match_profile} :\n" +
+                   servers.map{|s|s.tags['fqdn']}.join('\n  '))
             if servers.size < 1
               puts "#{match_profile} not found"
               exit 1
@@ -670,7 +679,6 @@ class Chef
               }).body['imagesSet'].first['tagSet']['Name']
             ui.msg(image.inspect)
 
-            ## HACKS
             oldprof = @bs.profile
             @bs.profile = match_profile
             mp_suffix = @bs.get_mixin_data('ami')[:suffix]
@@ -678,12 +686,12 @@ class Chef
 
             amiprefix = image.split(mp_suffix).first
             ui.msg(amiprefix.inspect)
-            get_ami_with_tag(amiprefix + ami_info.suffix)
-          elsif @bs[:amiprefix] && (@bs[:amiprefix] != ami_info[:prefix])
+            get_ami_with_tag(amiprefix + @bs.mixins.ami.suffix)
+          elsif @bs[:amiprefix] && (@bs[:amiprefix] != @bs.mixins.ami.prefix)
             # Only want to do this section if prefix was
             # specified on command line
             if ami_info.has_key?(suffix)
-              ami_name = @bs.amiprefix + ami_info.suffix
+              ami_name = @bs.amiprefix + @bs.mixins.ami.suffix
               get_ami_with_tag(ami_name)
             else
               errmsg = "No 'ami-suffix' provided in the YAML. \n"\
@@ -691,8 +699,8 @@ class Chef
                        "with a prefix but without a suffix."
               raise YamlError.new(errmsg)
             end
-          elsif ami_info[:base]
-            @bs[:image] = ami_info.base
+          elsif @bs.mixins.ami.data[:base]
+            @bs[:image] = @bs.mixins.ami.data.base
           end
         rescue Exception => e
           ui.fatal("#{ui.color(e.class.to_s, :gray, :bold)}: #{e.message}")
@@ -837,7 +845,7 @@ class Chef
         filter << '*' unless filter =~ /\*/
         tag_val = "#{vpc}.#{subnet}:#{filter}"
         servers =
-          @bs.connection.servers.all({'tag-value' => tag_val}).select do |s|
+          connection.servers.all({'tag-value' => tag_val}).select do |s|
           states.include?(s.state)
         end
         if servers.nil? || servers.length == 0

@@ -3,5 +3,5 @@ type: map
 required: no
 mapping:
   "=":
-    type: str
+    type: scalar
     required: no

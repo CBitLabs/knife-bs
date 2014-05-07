@@ -1,0 +1,26 @@
+desc: "AMI info"
+type: map
+required: no
+mapping:
+  "cookbook":
+    desc: "Cookbook name for making new AMIs"
+    type: str
+  "recipe":
+    desc: "Recipe for making the AMI for this instance"
+    type: str
+  "base":
+    desc: "AMI id to use creating instance"
+    type: str
+    pattern: /ami-\h{8}/
+  "prefix":
+    desc: "Prefix attached to AMI tag"
+    type: str
+  "body":
+    desc: "Body of the AMI tag"
+    type: str
+  "suffix":
+    desc: "Suffix attached to AMI tag"
+    type: str
+  "match":
+    desc: "Which profile to match"
+    type: str

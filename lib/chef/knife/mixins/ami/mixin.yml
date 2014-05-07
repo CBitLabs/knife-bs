@@ -1,0 +1,7 @@
+## BitSight Technologies
+description: "Information for creating and manipulating AMIs"
+
+mixin:
+  files:
+    clean:
+      run-at: after_chef

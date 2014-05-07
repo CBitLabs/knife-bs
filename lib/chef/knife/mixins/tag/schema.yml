@@ -1,0 +1,7 @@
+desc: "Instance tags (future AMI and volume)"
+type: map
+required: no
+mapping:
+  "=":
+    type: str
+    required: no

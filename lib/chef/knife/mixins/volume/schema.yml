@@ -19,7 +19,7 @@ mapping:
             required: yes
           "level":
             desc: "RAID level (0 default)"
-            type: str
+            type: int
             required: no
           "format":
             desc: "Device format"
@@ -61,7 +61,7 @@ mapping:
   "ebs":
     desc: "Amazon EBS drive configuration"
     type: map
-    required: yes
+    required: no
     mapping:
       "=":
         desc: "EBS Device"
@@ -99,7 +99,7 @@ mapping:
         required: no
         mapping:
           "level":
-            type: str
+            type: int
             required: no
           "format":
             desc: "Device format"

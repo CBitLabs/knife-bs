@@ -5,8 +5,8 @@ class VarMixin
 
   attr_accessor :sdata
 
-  def initialize(data)
-    super('var', data,
+  def initialize(bsconf, data)
+    super(bsconf, 'var', data,
           File.expand_path(File.dirname(__FILE__)) )
     @sdata = {}
   end

@@ -40,7 +40,7 @@ stacks:
   ...
 The command would be:
 knife bs stack create ame1.dev hadoop-cluster \
-  --each "master: --ebs 200 --latest; slave: --ebs 1000 --latest"
+  --each 'master: --ebs 200 --latest; slave: --ebs 1000 --latest'
 
 Use semicolons to separate profile args (as they would be passed to
 server create). Prefix the args with the profile name followed by a colon.
@@ -68,6 +68,11 @@ Be sure to put the entire argument set in quotes.
       option :dry_run,
              :long => '--mock',
              :description => "Don't really run, just use mock calls"
+
+      option :bootstrap_version,
+             :long => "--bootstrap-version VERSION",
+             :description => "The version of Chef to install",
+             :proc => Proc.new { |v| Chef::Config[:knife][:bootstrap_version] = v }
 
       ## TODO add optional delay in seconds between starting each
       ## profile in the cluster

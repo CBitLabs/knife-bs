@@ -1,10 +1,12 @@
 require 'chef/knife/bs_mixin'
 require 'chef/knife/bs_config'
+require 'pry'
 
 class VolumeMixin
   include ::Chef::Knife::BsMixin
-  def initialize(data)
-    super('volume', data, File.expand_path(File.dirname(__FILE__)))
+
+  def initialize(bsconf, data)
+    super(bsconf, 'volume', data, File.expand_path(File.dirname(__FILE__)))
   end
 
   def validate_ebs(bsconf)

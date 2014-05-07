@@ -42,9 +42,8 @@ class Chef
       default (:ssh_key_name) { Chef::Config[:knife][:aws_ssh_key_id] }
       default :ssh_user,          'ubuntu'
       default :ssh_port,          22
-      default :bootstrap_version, '11.8.0'
+      default :bootstrap_version, '11.12.4'
       default :distro,            'chef-full'
-      default :flavor,            'm3.large'
 
       def self.required_mixins
         @@required_mixins
@@ -70,17 +69,36 @@ class Chef
 
         usr_mixin_location = Chef::Config[:knife][:mixins]
         @@mixin_dirs  = `ls -d #{File.join(File.dirname(__FILE__), 'mixins', '/*')}`.chomp.split
-        @@mixin_dirs |= `ls -d #{File.join(usr_mixin_location, '/*')}`.chomp.split
+        begin
+          @@mixin_dirs |= `ls -d #{File.join(usr_mixin_location, '/*')}`.chomp.split
+        rescue Exception => e
+          ui.msg(ui.color('Unable to find user mixins', :bold))
+        end
         # @user_mixins contains command line additions
         @mixins = SubConfig.new({})
+        @mixin_overrides = SubConfig.new({})
       end
 
       def load_yaml
         begin
-          ui.msg("Loading config from yaml : #{Chef::Config[:knife][:yaml]}")
-          yml = YAML.load_file(Chef::Config[:knife][:yaml])
-          schema_file = File.expand_path(File.join(File.dirname(__FILE__), '../../bs-schema.yaml'))
+          schema_file = File.expand_path(File.join(File.dirname(__FILE__),
+                                                   '../../bs-schema.yaml'))
           @mixin_validator = MixinValidator.new(YAML.load_file(schema_file))
+          if self[:config_data_bag]
+            b = Chef::Config[:knife][:config_data_bag]
+            ui.msg("Loading config from data bag: #{b}")
+            b.include?('::') &&
+              (b, item = b.split('::')) ||
+              item = 'main'
+            yml = Chef::DataBagItem.load(b, item).to_hash
+            # In order for it to validate, need to strip out
+            %w{id chef_type data_bag}.each do |e|
+              puts "Removing #{e} => #{yml.delete(e)}"
+            end
+          else
+            ui.msg("Loading config from YAML: #{Chef::Config[:knife][:yaml]}")
+            yml = YAML.load_file(Chef::Config[:knife][:yaml])
+          end
           @mixin_validator.validate(yml)
           @yaml = SubConfig.new(yml)
         rescue Exception=>e
@@ -89,29 +107,77 @@ class Chef
         end
       end
 
+      # Overrides are passed in the form:
+      # -o '/path/in/yaml=value;/another/path=value;%mixin/arg=value'
+      def apply_overrides
+        # base  =>  the hash,
+        # p     =>  part/attribute,
+        # v     =>  value to set
+
+        begin
+          ## TODO be mindful of {=;/} symbols that are part of the path
+          ## or value
+          return unless self[:config_overrides]
+          set_by_path_parts = proc do |base, p, v|
+            case p.length
+            when 1
+              begin
+                part = p.pop.to_sym
+                base[part] = binding.eval(v)
+              rescue
+                base[part] = v
+              end
+            else
+              #  Recursively set if part of path doesn't exist
+              part = p.pop.to_sym
+              base[part] ||= {}
+              set_by_path_parts.call(base[part], p, v)
+            end
+          end
+          overrides = self[:config_overrides].split(';')
+          overrides.each do |o|
+            path, value = o.strip.split('=')
+            path.rstrip!; value.lstrip!
+
+            if path.start_with?('/')
+              base = @yaml
+            elsif path.start_with?('%')
+              base = @mixin_overrides
+            else
+              raise YamlError.new("No leading '/' or '%' in path.")
+            end
+            set_by_path_parts.call(
+              base,
+              path[1..-1].split('/').reverse,
+              value)
+          end
+        rescue Exception => e
+          ui.error("Unable to apply CLI overrides\n#{e.message}")
+          raise YamlError.new(e)
+        end
+      end
+
       def load_mixin(name, qualified=false)
         mdata = get_mixin_data(name)
 
-        if mdata.nil?
-          mdata = SubConfig.new({})
-        elsif mdata.respond_to?('keys')
+        if mdata.respond_to?('keys')
           mdata = SubConfig.new(mdata)
         end
 
         if qualified
-          @mixins[name] = BsMixin::QualifiedMixin.new(name, mdata)
+          @mixins[name] = BsMixin::QualifiedMixin.new(self, name, mdata)
           ui.msg("Loaded qualified mixin '#{name}'")
         else
           @@mixin_dirs.each do |dir|
             mixin_name = File.basename(dir)
             next unless name == mixin_name
             # Any redefined user mixins override builtins
-            ## Will not be able to load qualified mixins
+            ## REVIEW Will not be able to load qualified mixins
             load "#{File.join(dir, 'mixin.rb')}"
             ui.msg("Loaded mixin '#{name}', (#{BsMixin.last_included.to_s})")
             # Loading the mixin includes BsMixin which keeps track of what
             # was included last
-            @mixins[name] = BsMixin.last_included.new(mdata)
+            @mixins[name] = BsMixin.last_included.new(self, mdata)
             ## TODO validate mixin_data
           end
         end
@@ -137,7 +203,11 @@ class Chef
       ## Accessors
       ## -------------------------------------------------------
       def get_env(env)
-        @yaml.env[env]
+        env ||= @environment
+        return nil unless env
+        ## TODO multiple orgs?
+        org = @bs.yaml.organizations.hash.first[0]
+        (org[:env] && org.env[env]) || nil
       end
 
       def get_region_vpc(vpc=nil)
@@ -184,13 +254,8 @@ class Chef
       end
 
       def get_mixin_data_for_level(base, mixin)
-        if base &&
-           base.respond_to?('mixin') &&
-           base.mixin.respond_to?(mixin)
-          base.mixin[mixin]
-        else
-          nil
-        end
+        base && base.respond_to?(mixin) ?
+          base[mixin] : nil
       end
 
       ## TODO iterate over all orgs
@@ -231,6 +296,10 @@ class Chef
         get_mixin_data_for_level(base, mixin)
       end
 
+      def get_mixin_data_for_overrides(mixin)
+        get_mixin_data_for_level(@mixin_overrides, mixin)
+      end
+
       def get_mixin_data(mixin)
         merger = proc do |_,v1,v2|
           both_are = proc {|t| [v1,v2].all? {|v| v.is_a? (t)}}
@@ -252,7 +321,8 @@ class Chef
          :get_mixin_data_for_env,
          :get_mixin_data_for_subnet,
          :get_mixin_data_for_stack,
-         :get_mixin_data_for_profile].each do |method|
+         :get_mixin_data_for_profile,
+         :get_mixin_data_for_overrides].each do |method|
 
           d = self.send(method, mixin)
           next unless d
@@ -276,21 +346,20 @@ class Chef
         end
         ## TODO simple merge works until you have to clear the settings
         ## Defined above the level in question
+        # mixin_data[:bs_config] = self
         mixin_data
       end
 
       class MixinValidator < Kwalify::Validator
         def validate_hook(value, rule, path, errors)
-          # Here we need to pass along the validation of each individual
-          # mixin
-
-          # If we stop using 'mixin': tags, then need to hook in here
-          # and make correct modifications to the schema
+          # Use hook to build mixin list
           case rule.name
           when 'Mixin'
             BsConfig.required_mixins.add(File.basename(path))
           when 'QualifiedMixin'
             BsConfig.qualified_mixins.add(File.basename(path))
+
+          # Otherwise ignore/just validate
           end
         end
       end

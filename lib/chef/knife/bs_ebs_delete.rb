@@ -24,7 +24,7 @@ knife bs ebs delete [-i VOLUME-ID / VPC.SUBNET HOSTNAME] (options)
 
 Delete an EBS volume for a node. Parameter can be either a volume id, or
 hostname.
-The host must either be running or terminated in order to detach volumes. 
+The host must either be running or terminated in order to detach volumes.
 Usage:
 To delete using volume id:
     knife bs ebs delete -i vol-3912sk21
@@ -37,7 +37,8 @@ To detach and delete an ebs volume for a running server:
 
       option :devices,
              :long => '--devices DEVICES',
-             :description => 'Comma separated list of block device mappings to delete'
+             :description => 'Comma separated list of block '\
+                             'device mappings to delete'
 
       option :vol_id,
              :short => '-i VOLUME_ID',
@@ -46,13 +47,21 @@ To detach and delete an ebs volume for a running server:
                              'If specified, any other parameters are '\
                              'used to verify the correct device.'
 
+      option :no_instance_check,
+             :long => '--no-instance-check',
+             :description => 'Skip checking instances for attached volumes, '\
+                             'list volumes directly by fqdn tag'
+
       option :detach,
              :long => '--detach',
-             :description => 'Must pass this option to allow detaching from running nodes'
+             :description => 'Must pass this option to allow detaching '\
+                             'from running nodes'
 
       option :force_detach,
              :long => '--force-detach',
-             :description => 'Force detachment. This can cause corruption in the instance. Muste be called with detach, otherwise ignored.'
+             :description => 'Force detachment. This can cause corruption '\
+                             'in the instance. Muste be called with detach,'\
+                             ' otherwise ignored.'
 
       option :dry_run,
              :long => '--dry_run',
@@ -62,7 +71,7 @@ To detach and delete an ebs volume for a running server:
              :short => '-Z ZONE',
              :long => '--availability-zone ZONE',
              :description => 'The Availability Zone',
-             :proc => Proc.new { |key| Chef::Config[:knife][:availability_zone] = key }
+             :proc => proc {|key|Chef::Config[:knife][:availability_zone]=key}
 
       def run
         $stdout.sync = true
@@ -79,7 +88,7 @@ To detach and delete an ebs volume for a running server:
         else
           ui.msg("\nTrying to locate server with tag-value : #{@bs.fqdn}")
           servers = connection.servers.all({"tag-value" => "#{@bs.fqdn}"})
-          if servers.size == 0
+          if servers.size == 0 || @bs[:no_instance_check]
             ui.msg("\nNo servers found, checking for unattached volumes.")
             delete_volumes_for_fqdn
           else

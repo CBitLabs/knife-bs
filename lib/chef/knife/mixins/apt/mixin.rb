@@ -2,9 +2,9 @@ require 'chef/knife/bs_mixin'
 
 class AptMixin
   include ::Chef::Knife::BsMixin
-  
-  def initialize(data)
-    super('apt', data,
+
+  def initialize(bsconf, data)
+    super(bsconf, 'apt', data,
           File.expand_path(File.dirname(__FILE__)) )
   end
 

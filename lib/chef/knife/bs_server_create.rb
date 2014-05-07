@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-require 'rubygems'
-require 'chef/knife/bs_base'
 require 'chef/knife/ec2_server_create'
+require 'knife-bs/monkey_patches/hash'
+require 'chef/knife/bs_base'
+require 'rubygems'
 require 'parallel'
 require 'fog'
-require 'knife-bs/monkey_patches/hash'
 require 'pry'
 
 class Chef
@@ -32,9 +32,9 @@ class Chef
 knife bs server create VPC.SUBNET PROFILE (options)
 ----------------------------------------------------------------------------
 
-Create instances in EC2. Create single/multiple/ Permanent/Spot instances,
-with attached temp/permanent EBS storage, bootstraped with Chef, inside or
-outside the VPC, with Cloudwatch applied.
+Create instances in EC2. Create single/multiple/ Permanent/Spot
+instances, with attached temp/permanent EBS storage, bootstraped with
+Chef, inside or outside the VPC, with Cloudwatch applied.
 Usage:
 To create slaves, with 1TB EBS volumes, with ami matching the master:
     knife bs server create ame1.dev cluster slave --count 9 --perm 1000 --match
@@ -66,18 +66,22 @@ volume:
       size: 120
 
 For the above config, on the command line while CREATING NEW ebs volume
-you need to pass the size by specifying the --ebs flag. E.g. --ebs 200,300
+you need to pass the size by specifying the --ebs flag.
+E.g. --ebs 200,300
 
 knife bs server create ame1.dev cluster master --ebs 200,300
 
-This will create two new volumes of size 200 and 300. If the number of volumes
-specified in the yaml and on the cmd line mismatch then it will error out.
+This will create two new volumes of size 200 and 300. If the number of
+volumes specified in the yaml and on the cmd line mismatch then it will
+error out.
 
-If a server has many EBS volumes in EC2, then only the devices in the yaml which
-match will be mounted upon server creation.
+If a server has many EBS volumes in EC2, then only the devices in the
+yaml which match will be mounted upon server creation.
 
-RAID: To create raid with two or more volumes, in the yaml provide the raid_device
-to be created for all the volumes which are a part of the raid. E.g.
+RAID: To create raid with two or more volumes, in the yaml provide the
+raid_device to be created for all the volumes which are a part of the
+raid.
+E.g.
 
 volume:
       /dev/sdf:
@@ -87,17 +91,19 @@ volume:
 
 knife bs server create ame1.dev master --ebs 200,300
 
-This will create two volumes of size 200,300 and make them part of a raid.
-The raid device name will be ebs and will be mounted on /ebs.
+This will create two volumes of size 200,300 and make them part of a
+raid. The raid device name will be ebs and will be mounted on /ebs.
 
-To recreate the server with raid volumes, both the devices /dev/sdf and/dev/sdg
-need to be specified in the yaml or else those volumes will not be attached.
+To recreate the server with raid volumes, both the devices /dev/sdf
+and/dev/sdg need to be specified in the yaml or else those volumes will
+not be attached. 
 ############################################################################
 "
       option :flavor,
-             :short => "-f FLAVOR",
-             :long => "--flavor FLAVOR",
-             :description => "The instance type of server (m1.small, m1.medium, etc)",
+             :short => '-f FLAVOR',
+             :long => '--flavor FLAVOR',
+             :description => 'The instance type of server '\
+                             '(m1.small, m1.medium, etc)',
              :proc => Proc.new { |f| Chef::Config[:knife][:flavor] = f }
 
       ## OK
@@ -153,7 +159,7 @@ need to be specified in the yaml or else those volumes will not be attached.
 
       option :dry_run,
              :long => '--mock',
-             :description => "Don't really run, just use mock calls"
+             :description => 'Do not really run, just use mock calls'
 
       option :ebs,
              :long => '--ebs SIZE1,[SIZE2..]',
@@ -205,37 +211,48 @@ need to be specified in the yaml or else those volumes will not be attached.
 
       option :nospot,
              :long => '--nospot',
-             :description => "Don\'t create a spot instance"
+             :description => 'Do not create a spot instance'
 
       option :nocloudwatch,
              :long => '--nocw',
-             :description => "Skip cloudwatch for this instance"
+             :description => 'Skip cloudwatch for this instance'
 
       option :raid,
              :long => '--raid',
-             :description => "Create a software raid for the attached PERMANENT EBS volumes."
+             :description => 'Create a software raid for the attached '\
+                             'PERMANENT EBS volumes.'
 
       option :raid_level,
              :long => '--raid-level RAID_LEVEL',
-             :description => "Raid level for the devices. Defaults to 0",
+             :description => 'Raid level for the devices. Defaults to 0',
              :default => 0
 
       option :attach_volume,
              :long => '--attach',
-             :description => 'To attach and EBS volume by searching the FQDN tag'
+             :description => 'To attach and EBS volume by searching '\
+                             'the FQDN tag'
 
       option :associate_elastic_ip,
              :long => '--eip',
-             :description => "Associate an Elastic IP with the Instance."
+             :description => 'Associate an Elastic IP with the Instance.'
 
       option :restore_from_snapshot,
              :long => '--restore',
-             :description => "Restore the cluster from snapshot. By default it restores from the same subnet."
+             :description => 'Restore the cluster from snapshot. By default '\
+                             'it restores from the same subnet.'
 
       option :from,
              :short => '-f SUBNET',
              :long => '--from SUBNET',
              :description => 'Restore snapshots from given subnet.'
+
+      option :first_boot_attributes,
+             :short => "-j JSON_ATTRIBS",
+             :long => "--json-attributes",
+             :description => "A JSON string to be added "\
+                             "to the first run of chef-client",
+             :proc => lambda { |o| JSON.parse(o) },
+             :default => {}
 
       def run
         ## TODO review verbosity levels
@@ -276,7 +293,7 @@ need to be specified in the yaml or else those volumes will not be attached.
         print_messages
         print_cluster_info(@bs.servers, @bs.nodes, 'full')
         print_time_taken
-        ui.msg(ui.color("\nDone!\n\n", :bold))
+        ui.msg(ui.color('\nDone!\n\n', :bold))
       end
 
       def build_config(name_args)
@@ -290,19 +307,7 @@ need to be specified in the yaml or else those volumes will not be attached.
         ## REVIEW having cloudconf and ddns here?
         base_config(mixins = ['cloudconf', 'ddns']) # --> @bs
 
-
         Chef::Config[:knife][:image] = get_ami_id
-
-        ## MOVE this to mixin.rb?
-        @bs.mixins.tag.configure do |tagmixin|
-          subst = proc do |value|
-            t = tagmixin.data
-            binding.eval('"' + value + '"')
-          end
-          tagmixin.data.each do |tag,val|
-            tagmixin.data[tag] = subst.call(val)
-          end
-        end
 
         @bs.mixins.volume.configure do |volmixin|
           # First add all of the available ephemeral devices
@@ -349,7 +354,7 @@ need to be specified in the yaml or else those volumes will not be attached.
         ## TODO adapt for cluster create...
         @bs.mixins.price.configure do |pricemix|
           pricemix.data = @bs[:price] if @bs[:price]
-          @bs[:create_spot] = true unless pricemix.data.empty?
+          @bs[:create_spot] = !!pricemix.data
         end
 
         @bs[:subnet_id] = get_subnet_id([@bs.vpc, @bs.subnet] * '.')
@@ -365,7 +370,9 @@ need to be specified in the yaml or else those volumes will not be attached.
         end
 
         unless @bs[:skip_chef]
-          if @bs.mixins[:chef] && @bs.mixins.chef.data[:run_list]
+          if @bs.mixins[:chef] &&
+             @bs.mixins.chef.data &&
+             @bs.mixins.chef.data[:run_list]
             @bs[:run_list] ||= @bs.mixins.chef.data.run_list
             config[:run_list] = @bs[:run_list]
           end
@@ -411,10 +418,9 @@ need to be specified in the yaml or else those volumes will not be attached.
           else
             @bs[:ebs] = nil
           end
-        else
-          ui.error("No volume data is defined for this instance type")
         end
 
+        @bs.mixins.tag.eval(binding)
         @bs[:batch_size] ||= @bs[:number_of_nodes]
         @bs[:nodes]        = []
 
@@ -424,6 +430,7 @@ need to be specified in the yaml or else those volumes will not be attached.
 
       def build_cloud_config
         @bs.mixins.cloudconf.configure do |ccmixin|
+          ccmixin.data ||= SubConfig.new({}) 
           ccmixin.data[:apt_config] = @bs.mixins.apt.cloud_config
           #hook_config = @bs.mixins.hooks.cloud_config
           # To make the cloud config that you want, edit here. Would be
@@ -496,9 +503,10 @@ need to be specified in the yaml or else those volumes will not be attached.
 
         if Chef::Config[:knife][:aws_user_data]
           begin
-            options['UserData'] = File.read(Chef::Config[:knife][:aws_user_data])
+            options['UserData']= File.read(Chef::Config[:knife][:aws_user_data])
           rescue
-            ui.warn("Cannot read #{Chef::Config[:knife][:aws_user_data]}: #{$!.inspect}. Ignoring option.")
+            ui.warn("Cannot read #{Chef::Config[:knife][:aws_user_data]}:"\
+                    " #{$!.inspect}. Ignoring option.")
           end
         end
 
@@ -524,7 +532,8 @@ need to be specified in the yaml or else those volumes will not be attached.
         instances = response.body['instancesSet']
         # select only instances that have instanceId key and collect those ids
         # into an array
-        @bs[:instance_ids] = instances.select {|i| i.has_key?('instanceId')}.collect do |i|
+        @bs[:instance_ids] =
+          instances.select {|i| i.has_key?('instanceId')}.collect do |i|
           i['instanceId']
         end
 
@@ -573,34 +582,43 @@ need to be specified in the yaml or else those volumes will not be attached.
       def wait_until_ready
         Parallel.map(@bs.servers, in_threads: @bs.batch_size.to_i) do |server|
           begin
-            ui.msg(ui.color("Waiting for server state to be ready on : #{server.id}", :magenta))
+            ui.msg(ui.color("Waiting for server state to be ready "\
+                            "on : #{server.id}", :magenta))
             server.wait_for { print '.'; ready? }
             @bs.associations[server.id] = {}
           rescue SystemExit, Exception => e
             @bs.servers.delete(server)
             server.destroy
-            ui.warn("#{e.message}\nCaught SystemExit, Exception while waiting for #{server.id} to be ready. Destroying.")
+            ui.warn("#{e.message}\nCaught SystemExit,"\
+                    " Exception while waiting for #{server.id} to be ready."\
+                    " Destroying.")
             exit 1 if @bs.servers.length == 0
           end
         end
       end
 
       def associate_eips
-        Parallel.map(@bs.servers, :in_threads => @bs.batch_size.to_i) do |server|
+        Parallel.map(@bs.servers,
+                     :in_threads => @bs.batch_size.to_i) do |server|
           begin
             associate_elastic_ip(server)
           rescue Exception => e
-            ui.warn("#{e.message}\nException while associating Elastic IP for #{server.id}")
+            ui.warn("#{e.message}\nException while "\
+                    "associating Elastic IP for #{server.id}")
           end
         end
       end
 
       def tag_servers
-        Parallel.map(@bs.servers.count.times.to_a, in_threads: @bs.batch_size.to_i) do |num|
+        Parallel.map(@bs.servers.count.times.to_a,
+                     in_threads: @bs.batch_size.to_i) do |num|
           begin
             server = @bs.servers[num]
-            ui.color("Creating tags on #{@bs.associations[server.id]['fqdn']}(#{server.private_ip_address})\n", :magenta)
+            ui.msg(ui.color("Creating tags on "\
+                            "#{@bs.associations[server.id]['fqdn']}"\
+                            "(#{server.private_ip_address})\n", :magenta))
             fqdnsplit = @bs.nodes[num].split('.')
+            ## REVIEW getting chef_node_name this way breaks things..
             chef_node_name = fqdnsplit[0].to_s + '.' + fqdnsplit[1].to_s
             @bs.associations[server.id]['chef_node_name'] = chef_node_name
             @bs.associations[server.id]['fqdn'] = @bs.nodes[num]
@@ -608,7 +626,9 @@ need to be specified in the yaml or else those volumes will not be attached.
           rescue SystemExit, Exception=>e
             server.destroy
             @bs.servers.delete(server)
-            ui.warn("#{e.message}\nCaught SystemExit, Exception while creating tags for #{@bs.nodes[num]}. Destroying server and proceeding..")
+            ui.warn("#{e.message}\nCaught SystemExit, Exception while"\
+                    " creating tags for #{@bs.nodes[num]}."\
+                    " Destroying server and proceeding..")
             exit 1 if @bs.servers.size == 0
           end
         end
@@ -750,8 +770,12 @@ need to be specified in the yaml or else those volumes will not be attached.
       def pre_bootstrap
         Parallel.map(@bs.servers, in_threads: @bs.batch_size.to_i) do |server|
           begin
+            ## HACKS need to have data be per server, yet configurable
+            ## from a top level with no knowledge of the number or
+            ## constituency of servers
             @bs.mixins.var.configure do |vmix|
               vmix.sdata[server.id] = {}
+              ## ULTRAHACKS
               vmix.sdata[server.id]['HOSTNAME'] =
                 @bs.associations[server.id]['chef_node_name']
               vmix.sdata[server.id]['FQDN'] =
@@ -769,6 +793,7 @@ need to be specified in the yaml or else those volumes will not be attached.
 
             ## Figure out a better way to store DNS info
             if @bs[:skip_chef]; @bs.mixins.ddns.configure do |d|
+                d.data ||= SubConfig.new({})
                 [:subnet,
                  :vpc,
                  :domain].each { |e| d.data[e] = @bs[e] }
@@ -806,10 +831,13 @@ need to be specified in the yaml or else those volumes will not be attached.
                             :magenta))
             fqdn = vpc_mode? ? server.private_ip_address : server.dns_name
             bootstrap = bootstrap_for_linux_node(server, fqdn)
-            bootstrap.config[:chef_node_name]    =
+            bootstrap.config[:chef_node_name] =
               @bs.associations[server.id]['chef_node_name'] || server.id
             bootstrap.config[:bootstrap_version] = @bs.bootstrap_version
             bootstrap.config[:distro]            = @bs.distro
+            bootstrap.config[:first_boot_attributes] =
+              @bs[:first_boot_attributes].to_h unless
+              @bs[:first_boot_attributes].empty?
             bootstrap.run
             node, client = get_chef_node_client(@bs.associations[server.id]['chef_node_name'])
             node.chef_environment = @bs.mixins.chef.data.env
@@ -872,8 +900,8 @@ need to be specified in the yaml or else those volumes will not be attached.
           case name
           when 'volume'
             errs.concat(m.validate_ebs(@bs))
-          else
-            errs.concat(m.validate)
+          # else
+          #   errs.concat(m.validate)
           end
         end
         ## Commented out because the order of invocation changed.

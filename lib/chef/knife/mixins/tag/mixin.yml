@@ -1,0 +1,5 @@
+## BitSight Technologies
+description: "Configure instance tags"
+
+mixin:
+  files:

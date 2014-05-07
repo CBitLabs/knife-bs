@@ -41,7 +41,7 @@ To list slaves in production:
         build_config(name_args)
 
         # Find Servers
-        @bs[:servers] = get_servers(@bs.subnet, @bs.vpc, nil,
+        @bs[:servers] = get_servers(@bs.subnet, @bs.vpc, @bs[:filter],
                                     ['running', 'stopped'])
         exit 1 if @bs.servers.size == 0
 

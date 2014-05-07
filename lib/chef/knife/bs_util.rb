@@ -4,6 +4,12 @@ require 'pry'
 
 class Chef
   class Knife
+    #  Hashit
+    # Used to automatically provide setters and getters for any class
+    # implementing a hash under the hood.
+    #
+    # Used in bs_config
+
     module Hashit
       include Enumerable
       attr_accessor :hash
@@ -81,6 +87,14 @@ class Chef
 
       def []=(config_option, value)
         internal_set(config_option.to_s, value)
+      end
+
+      def to_h
+        res = {}
+        @hash.each do |k,v|
+          res[k] = (v.is_a?(Chef::Knife::SubConfig) ? v.to_h : v)
+        end
+        res
       end
     end
 

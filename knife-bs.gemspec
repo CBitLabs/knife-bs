@@ -24,18 +24,19 @@ Gem::Specification.new do |s|
   s.has_rdoc         = false
 
   s.add_dependency 'unf'
+  s.add_dependency 'json', '<= 1.7.7', '>= 1.4.4'
   s.add_dependency 'chef', '>= 0.10.18'
   s.add_dependency 'knife-ec2', '>= 0.8.0'
-  s.add_dependency 'terminal-table', '~> 1.4.3'
-  s.add_dependency 'parallel', '~> 0.6.2'
-  s.add_dependency 'ruby-progressbar', '~> 1.1.1'
-  s.add_dependency 'awesome_print', '~> 1.0.0'
-  s.add_dependency 'kwalify', '~> 0.7.2'
+  s.add_dependency 'kwalify', '>= 0.7.2'
+  s.add_dependency 'terminal-table', '>= 1.4.3'
+  s.add_dependency 'parallel', '>= 0.6.2'
+  s.add_dependency 'ruby-progressbar', '>= 1.1.1'
+  s.add_dependency 'awesome_print', '>= 1.0.0'
 
   # Development requirements
   # s.add_development_dependency 'rspec-core'
   # s.add_development_dependency 'rspec-expectations'
   # s.add_development_dependency 'rspec-mocks'
   # s.add_development_dependency 'rspec_junit_formatter'
-  s.add_development_dependency 'pry'
+  s.add_development_dependency 'pry', '~> 0'
 end

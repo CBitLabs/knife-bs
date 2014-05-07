@@ -3,8 +3,8 @@ require 'chef/knife/bs_mixin'
 class CloudConfMixin
   include ::Chef::Knife::BsMixin
   
-  def initialize(data)
-    super('cloudconf', data,
+  def initialize(bsconf, data)
+    super(bsconf, 'cloudconf', data,
           File.expand_path(File.dirname(__FILE__)) )
   end
   

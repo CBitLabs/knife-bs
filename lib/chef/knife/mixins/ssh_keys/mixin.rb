@@ -1,7 +1,7 @@
 class SSHKeysMixin
   include ::Chef::Knife::BsMixin
-  def initialize(data)
-    super('ssh-keys', data,
+  def initialize(bsconf, data)
+    super(bsconf, 'ssh-keys', data,
           File.expand_path(File.dirname(__FILE__)))
   end
 

@@ -15,11 +15,14 @@ class Chef
       include ::BsUtils::BsLogging
       # Mixins are used to directly interact with nodes over ssh/scp
       # Typically bash scripts are used but any kind of script will do,
-      # provided the interpreter is declared at the head of the script.
+      # provided the interpreter is declared at the head of the
+      # script. The alternative purpose is to store data that can be
+      # inherited down the YAML configuration tree
 
       attr_accessor :mixconf
       attr_accessor :validator
       attr_accessor :data
+      attr_accessor :bs
       attr_accessor :ui
       attr_accessor :user_data_validator
 
@@ -28,10 +31,6 @@ class Chef
       def self.included(includer)
         @@included_mixins << includer
         @@last_included = includer
-      end
-
-      def self.data
-        @data
       end
 
       def self.ui
@@ -47,23 +46,22 @@ class Chef
         @@included_mixins
       end
 
-      def initialize(name, data, path=nil)
+      def initialize(bsconfig, name, data, path=nil)
         @ui = Chef::Knife::UI.new(STDOUT, STDERR, STDIN, {})
+        @bs = bsconfig
         @data = data
         @name = name
+        # If path is not provided, this is a qualified mixin with no
+        # actionable files
         return unless path
         @basepath = path
         load_config
         load_user_data_validator
-        errors = validate
-        unless errors.empty?
-          ui.fatal("Mixin configuration invalid:\n")
-          ui.fatal(errors.inspect)
-          exit 1
-        end
+        validate
+        ## REVIEW script directory
         @@script_dir = File.join( Dir.mktmpdir( 'bs' ),
-                                  'knife-bs', 
-                                  'mixin', 
+                                  'knife-bs',
+                                  'mixin',
                                   @name)
 
         FileUtils.mkdir_p(@@script_dir) unless Dir.exists?(@@script_dir)
@@ -80,7 +78,24 @@ class Chef
 
       def validate
         # Run user-data validation against schema
-        self.respond_to?('@user_data_validator') ? @user_data_validator.validate(@data) : []
+        errors = []
+        begin
+          to_validate = @data.is_a?(SubConfig) ? @data.to_h : @data
+          errors = @user_data_validator.validate(to_validate)
+        rescue Kwalify::KwalifyError => e
+          ui.warn("Unable to validate user data"\
+                  " for mixin #{@name}"\
+                  "#{e.backtrace.join('\n')}")
+        ensure
+          unless errors.empty?
+            ui.fatal("Mixin configuration invalid:\n")
+            errors.each do |e|
+              ui.fatal("#{e.linenum}:#{e.column} [#{e.path}] #{e.message}")
+            end
+            exit 1
+          end
+          errors
+        end
       end
 
       def self.runlist
@@ -94,7 +109,7 @@ class Chef
       def load_user_data_validator
         begin
           schema = YAML.load_file(File.join(@basepath, 'schema.yml'))
-          @user_data_validator ||= UserDataValidator.new(schema)
+          @user_data_validator = UserDataValidator.new(schema)
         rescue Exception => e
           ui.msg(ui.color("Unable to load schema\n#{e}", :yellow))
         end
@@ -113,15 +128,18 @@ class Chef
         begin
           File.read(File.join(@basepath, 'templates', name))
         rescue Exception => e
-          ui.msg(ui.color("Unable to load template #{name} from #{File.join(@basepath, 'templates')}
-#{e.message}", :yellow))
+          ui.msg(ui.color("Unable to load template #{name} from "\
+                          "#{File.join(@basepath, 'templates')}\n"\
+                          "#{e.message}", :yellow))
         end
       end
 
+      ## REVIEW unused
       def validate_config
         @schema ||=
           begin
-            YAML.load_file(File.expand_path(File.join(__FILE__, '../../bs-mixin-schema.yaml')))
+            YAML.load_file(File.expand_path(
+                            File.join(__FILE__, '../../bs-mixin-schema.yaml')))
           end
         @validator ||= Kwalify::Validator.new(schema)
         @validator.validate(@mixconf)
@@ -261,7 +279,11 @@ class Chef
       end
 
       # Can be modified by the including class
-      class UserDataValidator < Kwalify::Validator; end
+      class UserDataValidator < Kwalify::Validator
+        # def validate_hook(value, rule, path, errors)
+        #   puts path
+        # end
+      end
     end
   end
 end
